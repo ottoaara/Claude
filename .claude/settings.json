@@ -2,5 +2,5 @@
   "model": "claude-sonnet-4-5",
   "theme": "auto",
   "autoApprove": false,
-  "permissions": "ask"
+  "permissions": {}
 }

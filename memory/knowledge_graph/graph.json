@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "Aaron": {
+      "type": "person",
+      "attributes": {
+        "email": "ottoaara@gmail.com",
+        "role": "developer"
+      }
+    },
+    "ClaudeProject": {
+      "type": "project",
+      "attributes": {
+        "path": "/Users/aaronotto/Desktop/Claude",
+        "language": "Python",
+        "api": "Anthropic Claude"
+      }
+    },
+    "AnthropicAPI": {
+      "type": "service",
+      "attributes": {
+        "provider": "Anthropic",
+        "env_var": "ANTHROPIC_API_KEY"
+      }
+    },
+    "KnowledgeGraph": {
+      "type": "component",
+      "attributes": {
+        "purpose": "structured context storage",
+        "storage": "file-based JSON"
+      }
+    },
+    "KnowledgeGraphDemo": {
+      "type": "concept",
+      "attributes": {}
+    }
+  },
+  "relations": [
+    {
+      "from": "Aaron",
+      "relation": "owns",
+      "to": "ClaudeProject"
+    },
+    {
+      "from": "ClaudeProject",
+      "relation": "uses",
+      "to": "AnthropicAPI"
+    },
+    {
+      "from": "ClaudeProject",
+      "relation": "contains",
+      "to": "KnowledgeGraph"
+    },
+    {
+      "from": "Aaron",
+      "relation": "built",
+      "to": "KnowledgeGraph"
+    },
+    {
+      "from": "Aaron",
+      "relation": "demoed",
+      "to": "KnowledgeGraphDemo"
+    }
+  ]
+}
