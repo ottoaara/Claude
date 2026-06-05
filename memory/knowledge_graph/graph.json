@@ -32,6 +32,14 @@
     "KnowledgeGraphDemo": {
       "type": "concept",
       "attributes": {}
+    },
+    "Hamza": {
+      "type": "person",
+      "attributes": {}
+    },
+    "CLAUD_CLASS": {
+      "type": "component",
+      "attributes": {}
     }
   },
   "relations": [
@@ -59,6 +67,16 @@
       "from": "Aaron",
       "relation": "demoed",
       "to": "KnowledgeGraphDemo"
+    },
+    {
+      "from": "Aaron",
+      "relation": "student",
+      "to": "Hamza"
+    },
+    {
+      "from": "CLAUD_CLASS",
+      "relation": "Instructor",
+      "to": "Hamza"
     }
   ]
 }
