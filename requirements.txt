@@ -19,3 +19,4 @@ pydantic-settings
 duckduckgo-search
 yfinance>=0.2.40
 ddgs>=7.0
+reportlab>=4.0.0

@@ -12,6 +12,8 @@ import NewsAnalysis from "../../components/NewsAnalysis";
 import DataFreshness from "../../components/DataFreshness";
 import OfficerResearch from "../../components/OfficerResearch";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'freshness' | 'graph' | 'officers';
 
 export default function BankingKGPage() {
@@ -20,6 +22,29 @@ export default function BankingKGPage() {
   const [researchComplete, setResearchComplete] = useState(false);
   const [researchResult, setResearchResult] = useState<any>(null);
   const [activeView, setActiveView] = useState<ViewMode>('summary');
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!companyName) return;
+    setPdfDownloading(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/company/${encodeURIComponent(companyName)}/report/pdf`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `${companyName.replace(/\s+/g, "_")}_intelligence_brief.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("PDF generation failed. Check backend logs.");
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
 
   const handleResearchStart = (newJobId: string, company: string) => {
     setJobId(newJobId);
@@ -69,6 +94,15 @@ export default function BankingKGPage() {
                 className="px-6 py-3 bg-[#FFCD41] hover:bg-[#FFD966] text-[#D71E28] rounded font-bold transition-all shadow-lg border-2 border-white"
               >
                 + New Research
+              </button>
+            )}
+            {researchComplete && companyName && (
+              <button
+                onClick={handleDownloadPdf}
+                disabled={pdfDownloading}
+                className="px-6 py-3 bg-white hover:bg-gray-100 text-[#D71E28] rounded font-bold transition-all shadow-lg border-2 border-white disabled:opacity-60"
+              >
+                {pdfDownloading ? "Generating PDF…" : "⬇ Export PDF"}
               </button>
             )}
           </div>

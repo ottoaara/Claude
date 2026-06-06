@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import os
 import asyncio
 from datetime import datetime
@@ -15,15 +17,34 @@ load_dotenv(dotenv_path=env_path)
 from .research_orchestrator import BankingResearchOrchestrator
 from .neo4j_db import BankingKnowledgeGraph
 
+# ─── Optional API key auth ────────────────────────────────────────────────────
+_API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def _require_api_key(api_key: Optional[str] = Security(_API_KEY_HEADER)):
+    """If BANKING_API_KEY is set in env, enforce it; otherwise allow all requests."""
+    expected = os.getenv("BANKING_API_KEY")
+    if expected and api_key != expected:
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+
+
 app = FastAPI(
     title="Banking Knowledge Graph API",
-    description="Commercial banking knowledge graph for sales meeting preparation",
+    description=(
+        "Context Fabric — Pre-Meeting Intelligence Platform\n\n"
+        "## Service API\n"
+        "1. `POST /research/start` — kick off research for a company (returns `job_id`)\n"
+        "2. `GET /research/status/{job_id}` — poll until `status == completed`\n"
+        "3. `GET /company/{name}/report` — fetch full JSON intelligence report\n"
+        "4. `GET /company/{name}/report/pdf` — download formatted PDF brief\n\n"
+        "Set the `X-API-Key` request header (matching `BANKING_API_KEY` env var) "
+        "to authenticate service-to-service calls."
+    ),
     version="1.0.0"
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=os.getenv("BANKING_CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -255,6 +276,86 @@ def list_companies():
         "companies": companies,
         "total": len(companies)
     }
+
+
+@app.get("/company/{company_name}/report",
+         dependencies=[Depends(_require_api_key)])
+def get_company_report(company_name: str):
+    """
+    **Service endpoint** — returns a complete structured JSON intelligence report
+    for a company.  Suitable for machine-to-machine consumption.
+
+    Requires `X-API-Key` header if `BANKING_API_KEY` env var is set.
+    """
+    global kg
+
+    graph_data = kg.get_company_graph(company_name)
+    if not graph_data:
+        raise HTTPException(status_code=404, detail=f"Company '{company_name}' not found")
+
+    peer_data = kg.get_peer_comparison(company_name)
+    officers  = kg.get_officers(company_name)
+
+    return {
+        "company_name": company_name,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "company":     graph_data.get("company", {}),
+        "financials":  graph_data.get("financials", []),
+        "industry":    graph_data.get("industries", []),
+        "news":        graph_data.get("news", []),
+        "products":    graph_data.get("products", []),
+        "peer_comparison": peer_data or {},
+        "officers":    officers,
+        "temporal_summary": graph_data.get("temporal_summary"),
+        "news_analysis":    graph_data.get("news_analysis"),
+    }
+
+
+@app.get("/company/{company_name}/report/pdf",
+         response_class=Response,
+         dependencies=[Depends(_require_api_key)])
+def get_company_report_pdf(company_name: str):
+    """
+    **Service endpoint** — generates and streams a professional PDF intelligence
+    brief for the specified company.
+
+    Returns `application/pdf` — save with `Content-Disposition: attachment`.
+    Requires `X-API-Key` header if `BANKING_API_KEY` env var is set.
+    """
+    from .report_generator import generate_pdf
+    global kg
+
+    graph_data = kg.get_company_graph(company_name)
+    if not graph_data:
+        raise HTTPException(status_code=404, detail=f"Company '{company_name}' not found")
+
+    peer_data = None
+    officers  = []
+    try:
+        peer_data = kg.get_peer_comparison(company_name)
+    except Exception:
+        pass
+    try:
+        officers = kg.get_officers(company_name)
+    except Exception:
+        pass
+
+    pdf_bytes = generate_pdf(
+        company_name=company_name,
+        graph_data=graph_data,
+        peer_data=peer_data,
+        officers=officers,
+    )
+
+    safe_name = company_name.replace(" ", "_").replace("/", "-")
+    date_str  = datetime.utcnow().strftime("%Y%m%d")
+    filename  = f"{safe_name}_intelligence_brief_{date_str}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/company/{company_name}/officers")
