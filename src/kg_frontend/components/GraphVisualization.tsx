@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { api, APIError } from "../lib/api";
 
@@ -32,11 +32,26 @@ interface Props {
   companyName: string;
 }
 
+// ─── Node type config ─────────────────────────────────────────────────────────
+const NODE_TYPES: Record<string, { color: string; label: string }> = {
+  Company:     { color: "#3b82f6", label: "Company" },
+  Financial:   { color: "#10b981", label: "Financials" },
+  News:        { color: "#ef4444", label: "News" },
+  Product:     { color: "#8b5cf6", label: "Products" },
+  Industry:    { color: "#f59e0b", label: "Industry" },
+  PeerCompany: { color: "#06b6d4", label: "Peer Company" },
+  Officer:     { color: "#ec4899", label: "Officer" },
+};
+
+const getNodeColor = (type: string) =>
+  NODE_TYPES[type]?.color ?? "#6b7280";
+
 export default function GraphVisualization({ companyName }: Props) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const graphRef = useRef<any>();
 
   useEffect(() => {
@@ -55,9 +70,19 @@ export default function GraphVisualization({ companyName }: Props) {
         setLoading(false);
       }
     };
-
     fetchGraphData();
   }, [companyName]);
+
+  const toggleType = useCallback((type: string) => {
+    setHiddenTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      // deselect node if its type is now hidden
+      setSelectedNode(sel => (sel?.type === type ? null : sel));
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -85,33 +110,33 @@ export default function GraphVisualization({ companyName }: Props) {
     );
   }
 
-  // Transform data for react-force-graph
+  // Which node types actually exist in this graph?
+  const presentTypes = [...new Set(graphData.nodes.map(n => n.type))];
+
+  // Filter nodes + edges by hidden types
+  const visibleNodes = graphData.nodes.filter(n => !hiddenTypes.has(n.type));
+  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+  const visibleEdges = graphData.edges.filter(
+    e => visibleNodeIds.has(e.source as string) && visibleNodeIds.has(e.target as string)
+  );
+
   const transformedData = {
-    nodes: graphData.nodes.map((node) => ({
+    nodes: visibleNodes.map((node) => ({
       id: node.id,
       name: node.label,
       type: node.type,
       data: node.data,
       val: node.type === "Company" ? 20 : 10,
     })),
-    links: graphData.edges.map((edge) => ({
+    links: visibleEdges.map((edge) => ({
       source: edge.source || (edge as any).from,
       target: edge.target || (edge as any).to,
       label: edge.type,
       data: edge.data,
     })),
   };
-
-  const getNodeColor = (node: any) => {
-    const colors: Record<string, string> = {
-      Company: "#3b82f6", // blue
-      Financial: "#10b981", // green
-      News: "#ef4444", // red
-      Product: "#8b5cf6", // purple
-      Industry: "#f59e0b", // amber
-      default: "#6b7280", // gray
-    };
-    return colors[node.type] || colors.default;
+      data: edge.data,
+    })),
   };
 
   return (
@@ -123,16 +148,14 @@ export default function GraphVisualization({ companyName }: Props) {
             ref={graphRef}
             graphData={transformedData}
             nodeLabel="name"
-            nodeColor={getNodeColor}
+            nodeColor={(n: any) => getNodeColor(n.type)}
             nodeRelSize={6}
             linkLabel="label"
             linkDirectionalArrowLength={3.5}
             linkDirectionalArrowRelPos={1}
             linkCurvature={0.2}
             onNodeClick={(node: any) => {
-              const originalNode = graphData.nodes.find(
-                (n) => n.id === node.id
-              );
+              const originalNode = graphData.nodes.find(n => n.id === node.id);
               setSelectedNode(originalNode || null);
             }}
             backgroundColor="rgba(15, 23, 42, 0.5)"
@@ -141,17 +164,13 @@ export default function GraphVisualization({ companyName }: Props) {
               const label = node.name;
               const fontSize = 12 / globalScale;
               ctx.font = `${fontSize}px Sans-Serif`;
-
-              // Draw node circle
               ctx.beginPath();
               ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI, false);
-              ctx.fillStyle = getNodeColor(node);
+              ctx.fillStyle = getNodeColor(node.type);
               ctx.fill();
               ctx.strokeStyle = "#fff";
               ctx.lineWidth = 0.5;
               ctx.stroke();
-
-              // Draw label
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               ctx.fillStyle = "#fff";
@@ -160,30 +179,48 @@ export default function GraphVisualization({ companyName }: Props) {
           />
         </div>
 
-        {/* Legend */}
-        <div className="p-4 bg-slate-900/50 border-t border-white/10">
-          <p className="text-xs text-blue-200 mb-2 font-semibold">Legend:</p>
-          <div className="flex flex-wrap gap-4 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-              <span className="text-white">Company</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <span className="text-white">Financials</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span className="text-white">News</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-              <span className="text-white">Products</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-              <span className="text-white">Industry</span>
-            </div>
+        {/* Filterable Legend */}
+        <div className="p-4 bg-slate-900/80 border-t border-white/10">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-blue-200 font-semibold uppercase tracking-wide">
+              Dimensions — click to filter
+            </p>
+            {hiddenTypes.size > 0 && (
+              <button
+                onClick={() => setHiddenTypes(new Set())}
+                className="text-xs text-blue-300 hover:text-white underline"
+              >
+                Show all
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {presentTypes.map(type => {
+              const cfg = NODE_TYPES[type] ?? { color: "#6b7280", label: type };
+              const hidden = hiddenTypes.has(type);
+              const count = graphData.nodes.filter(n => n.type === type).length;
+              return (
+                <button
+                  key={type}
+                  onClick={() => toggleType(type)}
+                  title={hidden ? `Show ${cfg.label}` : `Hide ${cfg.label}`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold transition-all select-none ${
+                    hidden
+                      ? "border-white/20 bg-white/5 text-white/30 line-through"
+                      : "border-white/30 bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: hidden ? "#555" : cfg.color }}
+                  />
+                  {cfg.label}
+                  <span className={`ml-0.5 ${hidden ? "text-white/20" : "text-white/50"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -196,12 +233,11 @@ export default function GraphVisualization({ companyName }: Props) {
 
         {selectedNode ? (
           <div className="space-y-4">
-            {/* Type badge */}
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm flex-shrink-0"
-                style={{ background: getNodeColor(selectedNode) }} />
+                style={{ background: getNodeColor(selectedNode.type) }} />
               <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded"
-                style={{ background: getNodeColor(selectedNode) + "22", color: getNodeColor(selectedNode) }}>
+                style={{ background: getNodeColor(selectedNode.type) + "22", color: getNodeColor(selectedNode.type) }}>
                 {selectedNode.type}
               </span>
             </div>
