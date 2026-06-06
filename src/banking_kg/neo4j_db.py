@@ -253,8 +253,10 @@ class BankingKnowledgeGraph:
             target_result = session.run("""
                 MATCH (c:Company {name: $name})
                 OPTIONAL MATCH (c)-[:HAS_FILING]->(f:Financial)
-                RETURN c,
-                       collect(f ORDER BY f.filing_date DESC)[0] AS latest_filing
+                WITH c, f
+                ORDER BY f.filing_date DESC
+                WITH c, collect(f)[0] AS latest_filing
+                RETURN c, latest_filing
             """, name=company_name)
             target_record = target_result.single()
 
@@ -280,7 +282,10 @@ class BankingKnowledgeGraph:
             legacy_result = session.run("""
                 MATCH (c:Company {name: $name})-[:PEER_OF]-(peer:Company)
                 OPTIONAL MATCH (peer)-[:HAS_FILING]->(f:Financial)
-                RETURN peer, collect(f ORDER BY f.filing_date DESC)[0] AS filing
+                WITH peer, f
+                ORDER BY f.filing_date DESC
+                WITH peer, collect(f)[0] AS filing
+                RETURN peer, filing
             """, name=company_name)
 
             legacy_peers = []

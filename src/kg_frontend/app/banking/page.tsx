@@ -80,10 +80,10 @@ export default function BankingKGPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-8">
               <h2 className="text-4xl font-bold text-[#333333] mb-4">
-                AI-Powered Meeting Preparation
+                CFF-Powered Meeting Preparation
               </h2>
               <p className="text-lg text-[#666666]">
-                Research companies across 5 dimensions in under 90 seconds
+                Where Context Meets Signal
               </p>
             </div>
             <CompanyResearchForm onResearchStart={handleResearchStart} />

@@ -262,7 +262,10 @@ def get_peer_comparison(company_name: str):
     if not data:
         raise HTTPException(status_code=404, detail=f"Company '{company_name}' not found")
 
-    # Compute net margin where possible
+    PEER_KEEP = {"name", "ticker", "revenue", "net_income", "operating_income",
+                 "total_assets", "stockholders_equity", "filing_period",
+                 "filing_type", "relationship", "estimated_size", "net_margin"}
+
     def net_margin(revenue, net_income):
         try:
             if revenue and net_income and float(revenue) != 0:
@@ -271,12 +274,22 @@ def get_peer_comparison(company_name: str):
             pass
         return None
 
-    def enrich(record: dict) -> dict:
-        record["net_margin"] = net_margin(record.get("revenue"), record.get("net_income"))
-        return record
+    def clean(record: dict, keep_keys: set = None) -> dict:
+        out = {}
+        for k, v in record.items():
+            if keep_keys and k not in keep_keys:
+                continue
+            # Strip Neo4j DateTime objects and other non-serialisable types
+            if isinstance(v, (str, int, float, bool, type(None))):
+                out[k] = v
+            elif isinstance(v, list):
+                out[k] = [x for x in v if isinstance(x, (str, int, float, bool))]
+            # Skip anything else (Neo4j DateTime, Point, etc.)
+        out["net_margin"] = net_margin(out.get("revenue"), out.get("net_income"))
+        return out
 
-    data["target"] = enrich(data["target"])
-    data["peers"] = [enrich(p) for p in data.get("peers", [])]
+    data["target"] = clean(data["target"])
+    data["peers"] = [clean(p, PEER_KEEP | {"name"}) for p in data.get("peers", [])]
 
     return data
 
