@@ -122,7 +122,14 @@ def run_research_sync(job_id: str, company_name: str, ticker: str = None, websit
     research_jobs[job_id]["status"] = "running"
 
     try:
-        result = orchestrator.research_company(company_name, ticker, website)
+        def on_step_complete(completed_steps: list):
+            research_jobs[job_id]["progress"] = {
+                "completed_steps": completed_steps,
+                "total_steps": 7
+            }
+
+        result = orchestrator.research_company(company_name, ticker, website,
+                                               progress_callback=on_step_complete)
 
         research_jobs[job_id]["status"] = "completed"
         research_jobs[job_id]["completed_at"] = datetime.now().isoformat()

@@ -51,6 +51,9 @@ class BankingResearchOrchestrator:
         # Initialize Neo4j
         self.kg = BankingKnowledgeGraph(uri=neo4j_uri, user=neo4j_user, password=neo4j_password)
 
+        # Live progress callback — set per-run by the API
+        self._progress_callback = None
+
         # Build the workflow graph
         self.workflow = self._build_workflow()
 
@@ -84,6 +87,14 @@ class BankingResearchOrchestrator:
 
         return workflow.compile()
 
+    def _emit_progress(self, completed_steps: list) -> None:
+        """Fire the live progress callback if one is registered."""
+        if self._progress_callback:
+            try:
+                self._progress_callback(list(completed_steps))
+            except Exception:
+                pass
+
     def _scrape_company_info(self, state: ResearchState) -> ResearchState:
         """Node: Scrape company information from website"""
         print(f"📊 Scraping company info for {state['company_name']}...")
@@ -102,6 +113,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["company_info"] = {"error": str(e)}
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _fetch_financials(self, state: ResearchState) -> ResearchState:
@@ -143,6 +155,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["financial_data"] = {"error": str(e), "filings": []}
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _search_news(self, state: ResearchState) -> ResearchState:
@@ -162,6 +175,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["news_data"] = {"error": str(e)}
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _generate_products(self, state: ResearchState) -> ResearchState:
@@ -193,6 +207,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["product_data"] = {"error": str(e)}
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _analyze_industry(self, state: ResearchState) -> ResearchState:
@@ -230,6 +245,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["industry_data"] = {"error": str(e)}
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _apply_temporal_scoring(self, state: ResearchState) -> ResearchState:
@@ -267,6 +283,7 @@ class BankingResearchOrchestrator:
             print(f"❌ {error_msg}")
             state["errors"].append(error_msg)
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _populate_graph(self, state: ResearchState) -> ResearchState:
@@ -357,6 +374,7 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["graph_populated"] = False
 
+        self._emit_progress(state["completed_steps"])
         return state
 
     def _generate_summary(self, state: ResearchState) -> ResearchState:
@@ -385,12 +403,14 @@ class BankingResearchOrchestrator:
         return state
 
     def research_company(self, company_name: str, ticker: str = None,
-                        website: str = None) -> Dict:
+                        website: str = None, progress_callback=None) -> Dict:
         """Execute the full research workflow for a company"""
 
         print(f"\n{'='*60}")
         print(f"🚀 Starting research for: {company_name}")
         print(f"{'='*60}\n")
+
+        self._progress_callback = progress_callback
 
         initial_state = {
             "company_name": company_name,
