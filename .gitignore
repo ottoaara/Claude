@@ -38,3 +38,10 @@ htmlcov/
 
 # Logs
 *.log
+
+# PID files
+*.pid
+
+# Downloaded/raw data (large files)
+sec-edgar-filings/
+data/edgar_downloads/

@@ -1,6 +1,33 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x scripts/start_neo4j.sh scripts/test_system.py)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, 'src'\\); from banking_kg.neo4j_db import BankingKnowledgeGraph; print\\('✅ Neo4j module imports successfully'\\)\")",
+      "Bash(find ~ -maxdepth 3 -name \".env\" -type f 2>/dev/null | grep -v node_modules | head -10)",
+      "Read(//Users/aaronotto/**)",
+      "Bash(env)",
+      "Bash(chmod +x scripts/demo_agents.py)",
+      "Bash(brew services *)",
+      "Bash(curl -s http://localhost:7474)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(python -m json.tool)",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs kill -9)",
+      "Bash(curl -X POST http://localhost:8000/research/start -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:8000/research/status/6a67d4f2-773f-4a5e-8cbf-a430d825396e)",
+      "Bash(lsof -ti:3000)",
+      "Bash(docker start *)",
+      "Bash(/usr/local/bin/docker start *)",
+      "Bash(/Applications/Docker.app/Contents/Resources/bin/docker start *)",
+      "Bash(docker run *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/banking)",
+      "Bash(chmod +x /Users/aaronotto/Desktop/Claude/START_DEMO.sh)",
+      "Bash(./START_DEMO.sh)"
+    ]
+  },
   "model": "claude-sonnet-4-5",
   "theme": "auto",
-  "autoApprove": false,
-  "permissions": {}
+  "autoApprove": false
 }
