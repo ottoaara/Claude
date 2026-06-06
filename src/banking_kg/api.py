@@ -251,6 +251,36 @@ def list_companies():
     }
 
 
+@app.get("/company/{company_name}/peer-comparison")
+def get_peer_comparison(company_name: str):
+    """
+    Return financial metrics for the target company alongside its EDGAR-sourced
+    peer companies for head-to-head comparison charts.
+    """
+    global kg
+    data = kg.get_peer_comparison(company_name)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Company '{company_name}' not found")
+
+    # Compute net margin where possible
+    def net_margin(revenue, net_income):
+        try:
+            if revenue and net_income and float(revenue) != 0:
+                return round(float(net_income) / float(revenue) * 100, 2)
+        except Exception:
+            pass
+        return None
+
+    def enrich(record: dict) -> dict:
+        record["net_margin"] = net_margin(record.get("revenue"), record.get("net_income"))
+        return record
+
+    data["target"] = enrich(data["target"])
+    data["peers"] = [enrich(p) for p in data.get("peers", [])]
+
+    return data
+
+
 @app.get("/company/{company_name}/freshness")
 def get_company_freshness(company_name: str):
     """

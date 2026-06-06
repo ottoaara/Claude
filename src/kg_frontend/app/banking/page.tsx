@@ -6,6 +6,7 @@ import ResearchProgress from "../../components/ResearchProgress";
 import InsightsOverview from "../../components/InsightsOverview";
 import FinancialMetrics from "../../components/FinancialMetrics";
 import IndustryComparison from "../../components/IndustryComparison";
+import PeerComparison from "../../components/PeerComparison";
 import GraphVisualization from "../../components/GraphVisualization";
 import NewsAnalysis from "../../components/NewsAnalysis";
 import DataFreshness from "../../components/DataFreshness";
@@ -153,11 +154,14 @@ export default function BankingKGPage() {
               )}
 
               {activeView === 'industry' && (
-                <IndustryComparison
-                  industry={researchResult?.dimensions?.industry || {}}
-                  companyMetrics={researchResult?.dimensions?.company_metrics}
-                  industryAverages={researchResult?.dimensions?.industry_averages}
-                />
+                <div className="space-y-6">
+                  <IndustryComparison
+                    industry={researchResult?.dimensions?.industry || {}}
+                    companyMetrics={researchResult?.dimensions?.company_metrics}
+                    industryAverages={researchResult?.dimensions?.industry_averages}
+                  />
+                  <PeerComparison companyName={companyName} />
+                </div>
               )}
 
               {activeView === 'news' && (

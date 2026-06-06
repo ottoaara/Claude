@@ -1,7 +1,7 @@
 from typing import Dict, List
 from langchain_anthropic import ChatAnthropic
 from langchain.prompts import ChatPromptTemplate
-from langchain_community.tools import DuckDuckGoSearchResults
+from ddgs import DDGS
 import os
 import json
 
@@ -39,9 +39,23 @@ class IndustryAgent:
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=4096,
         )
-        self.search_tool = DuckDuckGoSearchResults(num_results=5)
+
+    def _search(self, query: str, max_results: int = 5) -> str:
+        """Search the web with DuckDuckGo and return a formatted string of results."""
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=max_results))
+            if not results:
+                return "No results found."
+            return "\n".join(
+                f"[{i+1}] {r.get('title', '')}\n{r.get('body', '')}"
+                for i, r in enumerate(results)
+            )
+        except Exception as e:
+            return f"Search error: {e}"
 
     def classify_naics(self, company_name: str, industry: str,
                       description: str = None) -> Dict:
@@ -119,17 +133,19 @@ Classify this company into NAICS sectors.""")
         try:
             # Search for competitors
             query = f"{industry} companies competitors peers NAICS {naics_code}"
-            search_results = self.search_tool.run(query)
+            search_results = self._search(query, max_results=8)
 
             peer_prompt = ChatPromptTemplate.from_messages([
                 ("system", """Extract peer/competitor companies from search results.
-Return JSON array with:
-- company_name: Competitor name
+Return a JSON array of objects, each with:
+- company_name: Competitor name (string)
+- ticker: Stock ticker symbol if publicly traded, or null (e.g. "AAPL", "MSFT")
 - relationship: "direct_competitor" | "industry_peer" | "market_adjacent"
 - estimated_size: "larger" | "similar" | "smaller"
 - key_difference: Brief note on main difference
 
-Include 3-5 most relevant peers. Exclude the original company."""),
+Include 3-5 most relevant peers. Exclude the original company.
+Return ONLY valid JSON array, no prose."""),
                 ("user", "Original company: {company_name}\nIndustry: {industry}\n\nSearch results:\n{results}")
             ])
 
@@ -157,7 +173,7 @@ Include 3-5 most relevant peers. Exclude the original company."""),
 
         try:
             query = f"{industry} industry trends outlook 2024 2025 {naics_sector}"
-            search_results = self.search_tool.run(query)
+            search_results = self._search(query, max_results=6)
 
             trends_prompt = ChatPromptTemplate.from_messages([
                 ("system", """Analyze industry trends from search results.

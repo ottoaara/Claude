@@ -206,6 +206,116 @@ class BankingKnowledgeGraph:
             """, company_name=company_name, peer_name=peer_name,
                similarity_score=similarity_score)
 
+    def add_peer_financial_data(self, target_company: str, peer_name: str,
+                                ticker: str, metrics: Dict) -> None:
+        """Store EDGAR financial metrics on a PeerCompany node linked to the target."""
+        import json as _json
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (target:Company {name: $target})
+                MERGE (peer:PeerCompany {name: $peer_name})
+                SET peer.ticker            = $ticker,
+                    peer.relationship      = $relationship,
+                    peer.estimated_size    = $estimated_size,
+                    peer.filing_type       = $filing_type,
+                    peer.filing_period     = $filing_period,
+                    peer.revenue           = $revenue,
+                    peer.net_income        = $net_income,
+                    peer.operating_income  = $operating_income,
+                    peer.total_assets      = $total_assets,
+                    peer.total_liabilities = $total_liabilities,
+                    peer.stockholders_equity = $equity,
+                    peer.operating_cash_flow = $ocf,
+                    peer.updated_at        = datetime()
+                MERGE (target)-[r:HAS_PEER]->(peer)
+                SET r.updated_at = datetime()
+            """,
+            target=target_company,
+            peer_name=peer_name,
+            ticker=ticker,
+            relationship=metrics.get("relationship", "industry_peer"),
+            estimated_size=metrics.get("estimated_size", "unknown"),
+            filing_type=metrics.get("filing_type", "10-K"),
+            filing_period=metrics.get("filing_period", ""),
+            revenue=metrics.get("revenue"),
+            net_income=metrics.get("net_income"),
+            operating_income=metrics.get("operating_income"),
+            total_assets=metrics.get("total_assets"),
+            total_liabilities=metrics.get("total_liabilities"),
+            equity=metrics.get("stockholders_equity"),
+            ocf=metrics.get("operating_cash_flow"),
+            )
+
+    def get_peer_comparison(self, company_name: str) -> Dict:
+        """Return target company metrics alongside all peer EDGAR metrics."""
+        with self.driver.session() as session:
+            # Get target company financials (most recent filing)
+            target_result = session.run("""
+                MATCH (c:Company {name: $name})
+                OPTIONAL MATCH (c)-[:HAS_FILING]->(f:Financial)
+                RETURN c,
+                       collect(f ORDER BY f.filing_date DESC)[0] AS latest_filing
+            """, name=company_name)
+            target_record = target_result.single()
+
+            if not target_record:
+                return None
+
+            company_node = dict(target_record["c"]) if target_record["c"] else {}
+            latest_f = dict(target_record["latest_filing"]) if target_record["latest_filing"] else {}
+
+            # Get all peer companies with their financials
+            peers_result = session.run("""
+                MATCH (c:Company {name: $name})-[:HAS_PEER]->(peer:PeerCompany)
+                RETURN peer
+                ORDER BY peer.revenue DESC
+            """, name=company_name)
+
+            peers = []
+            for record in peers_result:
+                if record["peer"]:
+                    peers.append(dict(record["peer"]))
+
+            # Also include legacy PEER_OF linked Company nodes that have financials
+            legacy_result = session.run("""
+                MATCH (c:Company {name: $name})-[:PEER_OF]-(peer:Company)
+                OPTIONAL MATCH (peer)-[:HAS_FILING]->(f:Financial)
+                RETURN peer, collect(f ORDER BY f.filing_date DESC)[0] AS filing
+            """, name=company_name)
+
+            legacy_peers = []
+            for record in legacy_result:
+                if record["peer"]:
+                    p = dict(record["peer"])
+                    f = dict(record["filing"]) if record["filing"] else {}
+                    if f:
+                        p.update({
+                            "revenue": f.get("revenue"),
+                            "net_income": f.get("net_income"),
+                            "total_assets": f.get("total_assets"),
+                            "operating_income": f.get("operating_income"),
+                            "filing_period": f.get("period", ""),
+                            "filing_type": f.get("filing_type", ""),
+                        })
+                    legacy_peers.append(p)
+
+            return {
+                "target": {
+                    "name": company_name,
+                    "ticker": company_node.get("ticker"),
+                    "revenue": latest_f.get("revenue"),
+                    "net_income": latest_f.get("net_income"),
+                    "operating_income": latest_f.get("operating_income"),
+                    "total_assets": latest_f.get("total_assets"),
+                    "stockholders_equity": latest_f.get("stockholders_equity"),
+                    "filing_period": latest_f.get("period", ""),
+                    "filing_type": latest_f.get("filing_type", ""),
+                },
+                "peers": peers + [p for p in legacy_peers if not any(
+                    ep["name"] == p["name"] for ep in peers
+                )],
+            }
+
     def get_company_graph(self, company_name: str, max_depth: int = 2) -> Dict:
         """Get complete company graph with all dimensions"""
         with self.driver.session() as session:

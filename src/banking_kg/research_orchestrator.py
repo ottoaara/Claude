@@ -24,6 +24,7 @@ class ResearchState(TypedDict):
     news_data: Dict
     product_data: Dict
     industry_data: Dict
+    peer_financial_data: List  # [{peer_name, ticker, metrics, filing_type}]
 
     # Processing status
     errors: Annotated[List[str], operator.add]
@@ -68,6 +69,7 @@ class BankingResearchOrchestrator:
         workflow.add_node("search_news", self._search_news)
         workflow.add_node("generate_products", self._generate_products)
         workflow.add_node("analyze_industry", self._analyze_industry)
+        workflow.add_node("fetch_peer_financials", self._fetch_peer_financials)
         workflow.add_node("apply_temporal_scoring", self._apply_temporal_scoring)
         workflow.add_node("populate_graph", self._populate_graph)
         workflow.add_node("generate_summary", self._generate_summary)
@@ -80,7 +82,8 @@ class BankingResearchOrchestrator:
         workflow.add_edge("fetch_financials", "search_news")
         workflow.add_edge("search_news", "generate_products")
         workflow.add_edge("generate_products", "analyze_industry")
-        workflow.add_edge("analyze_industry", "apply_temporal_scoring")
+        workflow.add_edge("analyze_industry", "fetch_peer_financials")
+        workflow.add_edge("fetch_peer_financials", "apply_temporal_scoring")
         workflow.add_edge("apply_temporal_scoring", "populate_graph")
         workflow.add_edge("populate_graph", "generate_summary")
         workflow.add_edge("generate_summary", END)
@@ -250,6 +253,55 @@ class BankingResearchOrchestrator:
         self._emit_progress(state["completed_steps"])
         return state
 
+    def _fetch_peer_financials(self, state: ResearchState) -> ResearchState:
+        """Node: Fetch EDGAR 10-K / 10-Q data for each identified peer company"""
+        peers = state.get("industry_data", {}).get("peer_companies", [])
+        tickered_peers = [p for p in peers if isinstance(p, dict) and p.get("ticker")]
+
+        if not tickered_peers:
+            print("   No peer tickers found, skipping peer financials")
+            state["peer_financial_data"] = []
+            state["completed_steps"].append("peer_financials")
+            self._emit_progress(state["completed_steps"])
+            return state
+
+        print(f"📊 Fetching EDGAR filings for {len(tickered_peers)} peer(s)...")
+        peer_results = []
+
+        for peer in tickered_peers:
+            ticker = peer["ticker"].strip().upper()
+            name = peer.get("company_name", ticker)
+            print(f"   → {name} ({ticker})")
+            try:
+                raw = self.edgar_agent.get_company_financials(
+                    ticker, filing_types=["10-K", "10-Q"]
+                )
+                for filing in raw.get("filings", []):
+                    if "error" not in filing:
+                        peer_results.append({
+                            "peer_name": name,
+                            "ticker": ticker,
+                            "relationship": peer.get("relationship", "industry_peer"),
+                            "estimated_size": peer.get("estimated_size", "unknown"),
+                            "filing_type": filing.get("filing_type", "10-K"),
+                            "filing_period": filing.get("filing_period", ""),
+                            "revenue": filing.get("revenue"),
+                            "net_income": filing.get("net_income"),
+                            "operating_income": filing.get("operating_income"),
+                            "total_assets": filing.get("total_assets"),
+                            "total_liabilities": filing.get("total_liabilities"),
+                            "stockholders_equity": filing.get("stockholders_equity"),
+                            "operating_cash_flow": filing.get("operating_cash_flow"),
+                        })
+            except Exception as e:
+                print(f"   ⚠️  Failed for {ticker}: {e}")
+
+        state["peer_financial_data"] = peer_results
+        state["completed_steps"].append("peer_financials")
+        print(f"   ✅ Peer filings fetched: {len(peer_results)}")
+        self._emit_progress(state["completed_steps"])
+        return state
+
     def _apply_temporal_scoring(self, state: ResearchState) -> ResearchState:
         """Node: Apply temporal dimension scoring"""
         print(f"⏰ Applying temporal relevance scoring...")
@@ -362,11 +414,20 @@ class BankingResearchOrchestrator:
                     naics.get("naics_sector_name", "Unknown")
                 )
 
-            # Add peer relationships
+            # Add peer relationships and financial data
             for peer in industry_data.get("peer_companies", []):
                 self.kg.add_peer_relationship(
                     state["company_name"],
                     peer.get("company_name", "")
+                )
+
+            # Store peer EDGAR financial data
+            for pf in state.get("peer_financial_data", []):
+                self.kg.add_peer_financial_data(
+                    state["company_name"],
+                    pf["peer_name"],
+                    pf.get("ticker", ""),
+                    pf,
                 )
 
             state["graph_populated"] = True
@@ -433,7 +494,8 @@ class BankingResearchOrchestrator:
             "errors": [],
             "completed_steps": [],
             "graph_populated": False,
-            "summary": {}
+            "summary": {},
+            "peer_financial_data": [],
         }
 
         # Run the workflow
@@ -452,6 +514,7 @@ class BankingResearchOrchestrator:
                 "news": final_state.get("news_data", {}).get("news_items", []),
                 "products": final_state.get("product_data", {}).get("products", []),
                 "industry": final_state.get("industry_data", {}),
+                "peer_financials": final_state.get("peer_financial_data", []),
             },
             "errors": final_state.get("errors", [])
         }

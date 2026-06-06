@@ -114,6 +114,21 @@ export interface Company {
   ticker?: string;
 }
 
+export interface PeerCompanyMetrics {
+  name: string;
+  ticker?: string | null;
+  revenue?: number | null;
+  net_income?: number | null;
+  operating_income?: number | null;
+  total_assets?: number | null;
+  stockholders_equity?: number | null;
+  net_margin?: number | null;
+  filing_period?: string;
+  filing_type?: string;
+  relationship?: string;
+  estimated_size?: string;
+}
+
 // API functions
 export const api = {
   // Research endpoints
@@ -153,6 +168,13 @@ export const api = {
 
   async getFreshness(companyName: string): Promise<any> {
     return fetchAPI(`/company/${encodeURIComponent(companyName)}/freshness`);
+  },
+
+  async getPeerComparison(companyName: string): Promise<{
+    target: PeerCompanyMetrics;
+    peers: PeerCompanyMetrics[];
+  }> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/peer-comparison`);
   },
 
   async getStockAroundDates(ticker: string, dates: string[]): Promise<Record<string, {
