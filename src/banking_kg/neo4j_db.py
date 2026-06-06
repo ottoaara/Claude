@@ -4,6 +4,39 @@ import os
 from datetime import datetime
 
 
+def _neo4j_to_python(value):
+    """Recursively convert Neo4j temporal/spatial types to plain Python types."""
+    # Neo4j Date → "YYYY-MM-DD"
+    type_name = type(value).__name__
+    if type_name in ("Date", "neo4j.time.Date"):
+        try:
+            return f"{value.year:04d}-{value.month:02d}-{value.day:02d}"
+        except Exception:
+            return str(value)
+    # Neo4j DateTime / LocalDateTime → ISO string
+    if type_name in ("DateTime", "LocalDateTime", "neo4j.time.DateTime"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    # Neo4j Time / Duration
+    if type_name in ("Time", "Duration"):
+        return str(value)
+    # Nested dict (e.g. already-converted compound)
+    if isinstance(value, dict):
+        return {k: _neo4j_to_python(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_neo4j_to_python(v) for v in value]
+    return value
+
+
+def _node_to_dict(node) -> dict:
+    """Convert a Neo4j Node to a plain dict with all types serialised."""
+    if node is None:
+        return {}
+    return {k: _neo4j_to_python(v) for k, v in dict(node).items()}
+
+
 class BankingKnowledgeGraph:
     def __init__(self, uri: str = None, user: str = None, password: str = None):
         self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -266,8 +299,8 @@ class BankingKnowledgeGraph:
             if not target_record:
                 return None
 
-            company_node = dict(target_record["c"]) if target_record["c"] else {}
-            latest_f = dict(target_record["latest_filing"]) if target_record["latest_filing"] else {}
+            company_node = _node_to_dict(target_record["c"]) if target_record["c"] else {}
+            latest_f = _node_to_dict(target_record["latest_filing"]) if target_record["latest_filing"] else {}
 
             # Get all peer companies with their financials
             peers_result = session.run("""
@@ -279,7 +312,7 @@ class BankingKnowledgeGraph:
             peers = []
             for record in peers_result:
                 if record["peer"]:
-                    peers.append(dict(record["peer"]))
+                    peers.append(_node_to_dict(record["peer"]))
 
             # Also include legacy PEER_OF linked Company nodes that have financials
             legacy_result = session.run("""
@@ -294,8 +327,8 @@ class BankingKnowledgeGraph:
             legacy_peers = []
             for record in legacy_result:
                 if record["peer"]:
-                    p = dict(record["peer"])
-                    f = dict(record["filing"]) if record["filing"] else {}
+                    p = _node_to_dict(record["peer"])
+                    f = _node_to_dict(record["filing"]) if record["filing"] else {}
                     if f:
                         p.update({
                             "revenue": f.get("revenue"),
@@ -352,7 +385,7 @@ class BankingKnowledgeGraph:
             for n in record["news"]:
                 if not n:
                     continue
-                item = dict(n)
+                item = _node_to_dict(n)
                 for field in ("event_types", "key_facts"):
                     raw = item.get(field)
                     if isinstance(raw, str):
@@ -363,7 +396,7 @@ class BankingKnowledgeGraph:
                 news_items.append(item)
 
             # Parse news_analysis stored on Company node
-            company_data = dict(record["c"])
+            company_data = _node_to_dict(record["c"])
             news_analysis = None
             raw_analysis = company_data.pop("news_analysis", None)
             if raw_analysis:
@@ -382,13 +415,13 @@ class BankingKnowledgeGraph:
 
             return {
                 "company": company_data,
-                "financials": [dict(f) for f in record["financials"] if f],
+                "financials": [_node_to_dict(f) for f in record["financials"] if f],
                 "news": news_items,
                 "news_analysis": news_analysis,
                 "temporal_summary": temporal_summary,
-                "products": [dict(p) for p in record["products"] if p],
-                "industries": [dict(i) for i in record["industries"] if i],
-                "peers": [dict(p) for p in record["peers"] if p]
+                "products": [_node_to_dict(p) for p in record["products"] if p],
+                "industries": [_node_to_dict(i) for i in record["industries"] if i],
+                "peers": [_node_to_dict(p) for p in record["peers"] if p]
             }
 
     def prune_old_data(self, company_name: str, days_threshold: int = 90) -> int:
@@ -416,7 +449,7 @@ class BankingKnowledgeGraph:
                 return {"nodes": [], "edges": []}
 
             nodes = [{"id": company_name, "label": company_name, "type": "Company",
-                     "data": dict(record["c"])}]
+                     "data": _node_to_dict(record["c"])}]
             edges = []
 
             for rel in record["relationships"]:
@@ -437,7 +470,7 @@ class BankingKnowledgeGraph:
                         "id": node_id,
                         "label": node_id,
                         "type": node_type,
-                        "data": dict(node)
+                        "data": _node_to_dict(node)
                     })
 
             return {"nodes": nodes, "edges": edges}
