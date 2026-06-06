@@ -1,7 +1,7 @@
 from typing import Dict, List
 from langchain_anthropic import ChatAnthropic
 from langchain.prompts import ChatPromptTemplate
-from langchain_community.tools import DuckDuckGoSearchResults
+from ddgs import DDGS
 import os
 import json
 from datetime import datetime, timedelta
@@ -17,71 +17,96 @@ class NewsAgent:
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=4096,
         )
-        self.search_tool = DuckDuckGoSearchResults(num_results=10)
         self.classifier = NewsClassifier()
+
+    def _search(self, query: str, max_results: int = 10) -> List[Dict]:
+        """Run a DuckDuckGo text search and return raw result dicts."""
+        try:
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results))
+        except Exception as e:
+            print(f"Search error for '{query}': {e}")
+            return []
 
     def search_negative_news(self, company_name: str, days_back: int = 90) -> List[Dict]:
         """Search for negative news about a company"""
 
-        # Search queries focused on negative news
         search_queries = [
             f'"{company_name}" lawsuit OR scandal OR investigation OR fraud',
             f'"{company_name}" layoffs OR restructuring OR bankruptcy',
             f'"{company_name}" recall OR violation OR fine OR penalty',
-            f'"{company_name}" controversy OR complaint OR misconduct'
+            f'"{company_name}" controversy OR complaint OR misconduct',
         ]
 
         all_results = []
         for query in search_queries:
-            try:
-                results = self.search_tool.run(query)
-                all_results.append({"query": query, "results": results})
-            except Exception as e:
-                print(f"Error searching for '{query}': {e}")
-                continue
+            hits = self._search(query, max_results=5)
+            if hits:
+                all_results.append({"query": query, "results": hits})
 
         return self._process_search_results(company_name, all_results)
 
     def _process_search_results(self, company_name: str, search_results: List[Dict]) -> List[Dict]:
         """Process and filter search results using Claude"""
 
+        # Slim down the payload — only send title + body snippet per result
+        slim = []
+        for group in search_results:
+            for hit in group.get("results", []):
+                if isinstance(hit, dict):
+                    slim.append({
+                        "title": hit.get("title", "")[:120],
+                        "snippet": hit.get("body", hit.get("snippet", ""))[:300],
+                        "url": hit.get("href", hit.get("url", "")),
+                    })
+
+        if not slim:
+            return []
+
+        # Cap at 15 items to keep response size predictable
+        slim = slim[:15]
+
         processing_prompt = ChatPromptTemplate.from_messages([
             ("system", """You are analyzing news search results for negative/concerning news about a company.
-For each search result, determine:
-1. Is it actually about this company? (avoid false positives)
-2. Is it negative/concerning news? (lawsuits, scandals, financial trouble, regulatory issues, etc.)
-3. Is it recent and relevant?
 
-Return a JSON array of relevant news items with:
-- title: News headline
-- summary: 2-3 sentence summary of the issue
-- url: Source URL (extract from snippet if available)
-- date: Publication date (estimate if not exact)
+Return a JSON array of relevant news items with these fields ONLY:
+- title: News headline (string)
+- summary: 2-3 sentence summary (string)
+- url: Source URL (string)
+- date: Publication date estimate YYYY-MM-DD (string)
 - severity: "high" | "medium" | "low"
-- category: Type of issue (e.g., "legal", "financial", "regulatory", "operational")
+- category: "legal" | "financial" | "regulatory" | "operational" | "reputational"
 
-Only include genuinely negative/concerning news. Return empty array [] if no relevant news found."""),
-            ("user", "Company: {company_name}\n\nSearch results:\n{results}")
+Rules:
+- Only include news genuinely about THIS company
+- Only include negative/concerning news (lawsuits, fines, scandals, layoffs, etc.)
+- Return [] if nothing qualifies
+- Return ONLY the JSON array, no other text"""),
+            ("user", "Company: {company_name}\n\nArticles to evaluate:\n{results}")
         ])
 
         try:
             chain = processing_prompt | self.llm
             response = chain.invoke({
                 "company_name": company_name,
-                "results": json.dumps(search_results, indent=2)
+                "results": json.dumps(slim, indent=2, ensure_ascii=True)
             })
 
-            response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
+            response_text = response.content.strip()
+            # Strip any markdown fences
+            if "```" in response_text:
+                parts = response_text.split("```")
+                for part in parts:
+                    part = part.strip().lstrip("json").strip()
+                    if part.startswith("["):
+                        response_text = part
+                        break
 
             news_items = json.loads(response_text)
 
-            # Add metadata
             for item in news_items:
                 item["company_name"] = company_name
                 item["discovered_at"] = datetime.now().isoformat()
@@ -96,8 +121,9 @@ Only include genuinely negative/concerning news. Return empty array [] if no rel
         """Search for general recent news (not just negative)"""
 
         try:
-            query = f'"{company_name}" news'
-            results = self.search_tool.run(query)
+            hits = self._search(f'"{company_name}" news 2025 OR 2026', max_results=10)
+            if not hits:
+                return []
 
             processing_prompt = ChatPromptTemplate.from_messages([
                 ("system", """Extract news items from search results.
@@ -105,9 +131,9 @@ Return JSON array with:
 - title: News headline
 - summary: 1-2 sentence summary
 - url: Source URL
-- date: Publication date estimate
+- date: Publication date estimate (YYYY-MM-DD)
 - sentiment: "positive" | "neutral" | "negative"
-- relevance: "high" | "medium" | "low" (relevance to commercial banking assessment)
+- relevance: "high" | "medium" | "low"
 
 Include only recent, relevant news items."""),
                 ("user", "Company: {company_name}\n\nSearch results:\n{results}")
@@ -116,7 +142,7 @@ Include only recent, relevant news items."""),
             chain = processing_prompt | self.llm
             response = chain.invoke({
                 "company_name": company_name,
-                "results": results
+                "results": json.dumps(hits, indent=2)
             })
 
             response_text = response.content
