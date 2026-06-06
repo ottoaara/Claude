@@ -14,7 +14,8 @@ class ProductAgent:
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=api_key,
-            temperature=0.7  # Higher temperature for creative generation
+            temperature=0.7,  # Higher temperature for creative generation
+            max_tokens=4096,
         )
 
     def generate_products(self, company_name: str, industry: str,

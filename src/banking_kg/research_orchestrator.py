@@ -270,11 +270,16 @@ class BankingResearchOrchestrator:
 
         for peer in tickered_peers:
             ticker = peer["ticker"].strip().upper()
+            # Normalise and skip foreign/invalid tickers before attempting download
+            canonical = self.edgar_agent._normalise_ticker(ticker)
+            if not canonical:
+                print(f"   ⏭️  Skipping {ticker}: foreign exchange ticker, no EDGAR CIK")
+                continue
             name = peer.get("company_name", ticker)
-            print(f"   → {name} ({ticker})")
+            print(f"   → {name} ({canonical})")
             try:
                 raw = self.edgar_agent.get_company_financials(
-                    ticker, filing_types=["10-K", "10-Q"]
+                    canonical, filing_types=["10-K", "10-Q"]
                 )
                 for filing in raw.get("filings", []):
                     if "error" not in filing:

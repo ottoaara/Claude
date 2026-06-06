@@ -58,6 +58,7 @@ class NewsClassifier:
             model="claude-sonnet-4-6",
             api_key=api_key,
             temperature=0,
+            max_tokens=4096,
         )
 
         self._classify_prompt = ChatPromptTemplate.from_messages([
@@ -151,10 +152,8 @@ Return ONLY valid JSON — no markdown."""),
         items: List[Dict],
     ) -> List[Dict]:
         """
-        Classify a list of news items in a single LLM call.
-
-        Each item should have at minimum: id, title, snippet.
-        Returns the original items enriched with classification fields.
+        Classify a list of news items in chunks to avoid LLM response truncation.
+        Each chunk of up to 5 items is sent in a single LLM call.
         """
         if not items:
             return []
@@ -163,33 +162,36 @@ Return ONLY valid JSON — no markdown."""),
         for i, item in enumerate(items):
             item.setdefault("id", i)
 
-        slim = [
-            {"id": it["id"], "title": it.get("title", ""), "snippet": it.get("snippet", it.get("summary", ""))}
-            for it in items
-        ]
+        CHUNK = 5
+        all_enriched = []
+        for start in range(0, len(items), CHUNK):
+            chunk = items[start:start + CHUNK]
+            slim = [
+                {"id": it["id"], "title": it.get("title", ""), "snippet": it.get("snippet", it.get("summary", ""))[:300]}
+                for it in chunk
+            ]
+            try:
+                chain = self._batch_prompt | self.llm
+                response = chain.invoke({
+                    "company_name": company_name,
+                    "items_json": json.dumps(slim, indent=2),
+                    "event_types": ", ".join(KEY_EVENT_TYPES),
+                })
+                classifications = self._parse_json(response.content)
+                if not isinstance(classifications, list):
+                    raise ValueError("Expected a JSON array")
 
-        try:
-            chain = self._batch_prompt | self.llm
-            response = chain.invoke({
-                "company_name": company_name,
-                "items_json": json.dumps(slim, indent=2),
-                "event_types": ", ".join(KEY_EVENT_TYPES),
-            })
-            classifications = self._parse_json(response.content)
-            if not isinstance(classifications, list):
-                raise ValueError("Expected a JSON array")
+                cls_by_id = {c["id"]: c for c in classifications}
+                for item in chunk:
+                    cls = cls_by_id.get(item["id"], self._fallback_classification())
+                    all_enriched.append({**item, **cls})
 
-            # Merge classifications back onto the original items
-            cls_by_id = {c["id"]: c for c in classifications}
-            enriched = []
-            for item in items:
-                cls = cls_by_id.get(item["id"], self._fallback_classification())
-                enriched.append({**item, **cls})
-            return enriched
+            except Exception as e:
+                print(f"[NewsClassifier] batch classify error (chunk {start}–{start+CHUNK}): {e}")
+                for item in chunk:
+                    all_enriched.append({**item, **self._fallback_classification(str(e))})
 
-        except Exception as e:
-            print(f"[NewsClassifier] batch classify error: {e}")
-            return [{**it, **self._fallback_classification(str(e))} for it in items]
+        return all_enriched
 
     def filter_noise(self, items: List[Dict]) -> List[Dict]:
         """Remove items flagged as noise/promotional."""

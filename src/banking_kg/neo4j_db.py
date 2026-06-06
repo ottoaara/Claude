@@ -105,7 +105,10 @@ class BankingKnowledgeGraph:
                 is_material: bool = False, key_facts: list = None,
                 relevance_score: float = 0.5) -> Dict:
         """Add negative/relevant news with classifier fields"""
-        import json
+        import json, re
+        # Sanitise date — Cypher date() requires strict YYYY-MM-DD
+        safe_date = date if date and re.match(r'^\d{4}-\d{2}-\d{2}$', str(date)) \
+                    else __import__('datetime').datetime.now().strftime('%Y-%m-%d')
         with self.driver.session() as session:
             news_id = f"{company_name}_{hash(url)}"
             result = session.run("""
@@ -126,7 +129,7 @@ class BankingKnowledgeGraph:
                 MERGE (c)-[:MENTIONED_IN]->(n)
                 RETURN n
             """, company_name=company_name, news_id=news_id, title=title,
-               summary=summary, url=url, date=date, sentiment=sentiment, source=source,
+               summary=summary, url=url, date=safe_date, sentiment=sentiment, source=source,
                severity=severity,
                event_types=json.dumps(event_types or []),
                is_material=is_material,

@@ -11,6 +11,32 @@ from langchain.prompts import ChatPromptTemplate
 class EdgarFinancialAgent:
     """Agent for extracting financial data from SEC EDGAR (10-K, 10-Q)"""
 
+    # Common ticker aliases / normalisation: LLM sometimes returns display names
+    # instead of the official EDGAR ticker.
+    TICKER_ALIASES = {
+        "3M": "MMM",
+        "3M CO": "MMM",
+        "3M COMPANY": "MMM",
+        "BRK.A": "BRK-A",
+        "BRK.B": "BRK-B",
+        "GOOGL": "GOOGL",
+        "META": "META",
+    }
+
+    # Foreign-exchange suffixes that have no EDGAR CIK — skip gracefully
+    FOREIGN_SUFFIXES = (".KS", ".HK", ".TYO", ".L", ".DE", ".PA", ".AS", ".TO", ".AX")
+
+    @classmethod
+    def _normalise_ticker(cls, ticker: str) -> str | None:
+        """Return canonical EDGAR ticker, or None if foreign/invalid."""
+        t = ticker.strip().upper()
+        # Foreign exchange
+        for suffix in cls.FOREIGN_SUFFIXES:
+            if t.endswith(suffix.upper()):
+                return None
+        # Known aliases
+        return cls.TICKER_ALIASES.get(t, t)
+
     def __init__(self, company_email: str = None):
         self.email = company_email or os.getenv("USER_EMAIL", "user@example.com")
         self.company_name = os.getenv("COMPANY_NAME", "WellsFargoBank")
@@ -167,16 +193,21 @@ Return valid JSON only. For all numeric values, provide just the number (no $ or
         if filing_types is None:
             filing_types = ["10-K", "10-Q"]
 
-        print(f"\n📊 Edgar Agent: Starting financial research for ticker '{ticker}'")
+        canonical = self._normalise_ticker(ticker)
+        if canonical is None:
+            print(f"   ⏭️  Skipping {ticker}: foreign exchange ticker, no EDGAR CIK")
+            return {"ticker": ticker, "filings": [], "skipped": "foreign_ticker"}
+
+        print(f"\n📊 Edgar Agent: Starting financial research for ticker '{canonical}'")
 
         results = {
-            "ticker": ticker,
+            "ticker": canonical,
             "filings": []
         }
 
         for filing_type in filing_types:
             print(f"   Fetching {filing_type} filings...")
-            filings = self.fetch_filings(ticker, filing_type, num_filings=1)
+            filings = self.fetch_filings(canonical, filing_type, num_filings=1)
             print(f"   Found {len(filings)} {filing_type} filing(s)")
 
             for filing_path in filings:
