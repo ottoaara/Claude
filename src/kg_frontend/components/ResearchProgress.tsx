@@ -28,7 +28,9 @@ const STEPS = [
   { key: "news", label: "News & Sentiment Analysis" },
   { key: "products", label: "Product Portfolio Analysis" },
   { key: "industry", label: "Industry & Peer Analysis" },
-  { key: "temporal_scoring", label: "Data Freshness Scoring" },
+  { key: "peer_financials", label: "Peer EDGAR Financials" },
+  { key: "officer_research", label: "Officer Intelligence" },
+  { key: "temporal_scoring", label: "Temporal Weighting-Freshness" },
   { key: "graph_populated", label: "Knowledge Graph Population" },
 ];
 

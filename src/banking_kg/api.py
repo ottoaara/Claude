@@ -42,6 +42,12 @@ class CompanyResearchRequest(BaseModel):
     website: Optional[str] = None
 
 
+class OfficerSearchRequest(BaseModel):
+    name: str
+    company: str
+    role: Optional[str] = None
+
+
 class ResearchStatus(BaseModel):
     job_id: str
     status: str  # "pending", "running", "completed", "failed"
@@ -249,6 +255,38 @@ def list_companies():
         "companies": companies,
         "total": len(companies)
     }
+
+
+@app.get("/company/{company_name}/officers")
+def get_company_officers(company_name: str):
+    """Return stored officer profiles for a company."""
+    global kg
+    officers = kg.get_officers(company_name)
+    return {"company_name": company_name, "officers": officers, "total": len(officers)}
+
+
+@app.post("/officer/search")
+def search_officer(request: OfficerSearchRequest):
+    """
+    Research a specific individual by name and company.
+    Useful when the RM's contact is not in the automatically discovered officer list.
+    Saves the profile to Neo4j so it appears in the Officers tab.
+    """
+    from .agents.officer_agent import OfficerAgent
+    global kg
+
+    agent = OfficerAgent()
+    profile = agent.research_officer(
+        request.name, request.company, request.role or ""
+    )
+
+    # Persist to Neo4j (best-effort — company may not exist yet)
+    try:
+        kg.add_officer(request.company, profile)
+    except Exception:
+        pass
+
+    return profile
 
 
 @app.get("/company/{company_name}/peer-comparison")

@@ -10,8 +10,9 @@ import PeerComparison from "../../components/PeerComparison";
 import GraphVisualization from "../../components/GraphVisualization";
 import NewsAnalysis from "../../components/NewsAnalysis";
 import DataFreshness from "../../components/DataFreshness";
+import OfficerResearch from "../../components/OfficerResearch";
 
-type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'freshness' | 'graph';
+type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'freshness' | 'graph' | 'officers';
 
 export default function BankingKGPage() {
   const [jobId, setJobId] = useState<string | null>(null);
@@ -135,6 +136,11 @@ export default function BankingKGPage() {
                   onClick={() => setActiveView('graph')}
                   label="Knowledge Graph"
                 />
+                <TabButton
+                  active={activeView === 'officers'}
+                  onClick={() => setActiveView('officers')}
+                  label="Officer Intelligence"
+                />
               </div>
             </div>
 
@@ -177,6 +183,10 @@ export default function BankingKGPage() {
 
               {activeView === 'graph' && (
                 <GraphVisualization companyName={companyName} />
+              )}
+
+              {activeView === 'officers' && (
+                <OfficerResearch companyName={companyName} />
               )}
             </div>
           </div>

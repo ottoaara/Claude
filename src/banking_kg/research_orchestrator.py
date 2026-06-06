@@ -8,6 +8,7 @@ from .agents.web_scraper_agent import WebScraperAgent
 from .agents.news_agent import NewsAgent
 from .agents.product_agent import ProductAgent
 from .agents.industry_agent import IndustryAgent
+from .agents.officer_agent import OfficerAgent
 from .temporal import TemporalDimension
 from .neo4j_db import BankingKnowledgeGraph
 
@@ -25,6 +26,7 @@ class ResearchState(TypedDict):
     product_data: Dict
     industry_data: Dict
     peer_financial_data: List  # [{peer_name, ticker, metrics, filing_type}]
+    officer_data: Dict         # {officers: [...], total_found: N}
 
     # Processing status
     errors: Annotated[List[str], operator.add]
@@ -47,6 +49,7 @@ class BankingResearchOrchestrator:
         self.news_agent = NewsAgent()
         self.product_agent = ProductAgent()
         self.industry_agent = IndustryAgent()
+        self.officer_agent = OfficerAgent()
         self.temporal = TemporalDimension()
 
         # Initialize Neo4j
@@ -70,6 +73,7 @@ class BankingResearchOrchestrator:
         workflow.add_node("generate_products", self._generate_products)
         workflow.add_node("analyze_industry", self._analyze_industry)
         workflow.add_node("fetch_peer_financials", self._fetch_peer_financials)
+        workflow.add_node("fetch_officers", self._fetch_officers)
         workflow.add_node("apply_temporal_scoring", self._apply_temporal_scoring)
         workflow.add_node("populate_graph", self._populate_graph)
         workflow.add_node("generate_summary", self._generate_summary)
@@ -83,7 +87,8 @@ class BankingResearchOrchestrator:
         workflow.add_edge("search_news", "generate_products")
         workflow.add_edge("generate_products", "analyze_industry")
         workflow.add_edge("analyze_industry", "fetch_peer_financials")
-        workflow.add_edge("fetch_peer_financials", "apply_temporal_scoring")
+        workflow.add_edge("fetch_peer_financials", "fetch_officers")
+        workflow.add_edge("fetch_officers", "apply_temporal_scoring")
         workflow.add_edge("apply_temporal_scoring", "populate_graph")
         workflow.add_edge("populate_graph", "generate_summary")
         workflow.add_edge("generate_summary", END)
@@ -307,6 +312,24 @@ class BankingResearchOrchestrator:
         self._emit_progress(state["completed_steps"])
         return state
 
+    def _fetch_officers(self, state: ResearchState) -> ResearchState:
+        """Node: Research key officers at the target company"""
+        print(f"👤 Researching officers for {state['company_name']}...")
+        try:
+            officer_data = self.officer_agent.get_comprehensive_officer_intelligence(
+                state["company_name"]
+            )
+            state["officer_data"] = officer_data
+            state["completed_steps"].append("officer_research")
+            print(f"   ✅ Officer profiles built: {len(officer_data.get('officers', []))}")
+        except Exception as e:
+            error_msg = f"Officer research error: {str(e)}"
+            print(f"❌ {error_msg}")
+            state["errors"].append(error_msg)
+            state["officer_data"] = {"officers": [], "error": str(e)}
+        self._emit_progress(state["completed_steps"])
+        return state
+
     def _apply_temporal_scoring(self, state: ResearchState) -> ResearchState:
         """Node: Apply temporal dimension scoring"""
         print(f"⏰ Applying temporal relevance scoring...")
@@ -443,6 +466,13 @@ class BankingResearchOrchestrator:
             if temporal_summary:
                 self.kg.save_temporal_summary(state["company_name"], temporal_summary)
 
+            # Store officer profiles
+            for officer in state.get("officer_data", {}).get("officers", []):
+                try:
+                    self.kg.add_officer(state["company_name"], officer)
+                except Exception as oe:
+                    print(f"   ⚠️  Failed to store officer {officer.get('name')}: {oe}")
+
         except Exception as e:
             error_msg = f"Graph population error: {str(e)}"
             print(f"❌ {error_msg}")
@@ -501,6 +531,7 @@ class BankingResearchOrchestrator:
             "graph_populated": False,
             "summary": {},
             "peer_financial_data": [],
+            "officer_data": {},
         }
 
         # Run the workflow
@@ -520,6 +551,7 @@ class BankingResearchOrchestrator:
                 "products": final_state.get("product_data", {}).get("products", []),
                 "industry": final_state.get("industry_data", {}),
                 "peer_financials": final_state.get("peer_financial_data", []),
+                "officers": final_state.get("officer_data", {}).get("officers", []),
             },
             "errors": final_state.get("errors", [])
         }

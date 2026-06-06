@@ -242,6 +242,80 @@ class BankingKnowledgeGraph:
             """, company_name=company_name, peer_name=peer_name,
                similarity_score=similarity_score)
 
+    def add_officer(self, company_name: str, officer: Dict) -> None:
+        """Store an officer profile linked to a company."""
+        import json as _json
+        with self.driver.session() as session:
+            officer_id = f"{company_name}_{officer.get('name', '').replace(' ', '_')}"
+            session.run("""
+                MATCH (c:Company {name: $company_name})
+                MERGE (o:Officer {id: $officer_id})
+                SET o.name                 = $name,
+                    o.role                 = $role,
+                    o.role_short           = $role_short,
+                    o.company              = $company_name,
+                    o.background_summary   = $background_summary,
+                    o.education            = $education,
+                    o.previous_roles       = $previous_roles,
+                    o.tenure_years         = $tenure_years,
+                    o.linkedin_url         = $linkedin_url,
+                    o.key_achievements     = $key_achievements,
+                    o.recent_news          = $recent_news,
+                    o.publications_speaking= $publications,
+                    o.board_memberships    = $boards,
+                    o.risk_flags           = $risk_flags,
+                    o.banking_relevance    = $banking_relevance,
+                    o.confidence           = $confidence,
+                    o.researched_at        = $researched_at,
+                    o.updated_at           = datetime()
+                MERGE (c)-[:HAS_OFFICER]->(o)
+            """,
+            company_name=company_name,
+            officer_id=officer_id,
+            name=officer.get("name", ""),
+            role=officer.get("role", ""),
+            role_short=officer.get("role_short", officer.get("role", "")[:6]),
+            background_summary=officer.get("background_summary", ""),
+            education=_json.dumps(officer.get("education", [])),
+            previous_roles=_json.dumps(officer.get("previous_roles", [])),
+            tenure_years=officer.get("tenure_years"),
+            linkedin_url=officer.get("linkedin_url"),
+            key_achievements=_json.dumps(officer.get("key_achievements", [])),
+            recent_news=_json.dumps(officer.get("recent_news", [])),
+            publications=_json.dumps(officer.get("publications_speaking", [])),
+            boards=_json.dumps(officer.get("board_memberships", [])),
+            risk_flags=_json.dumps(officer.get("risk_flags", [])),
+            banking_relevance=officer.get("banking_relevance", ""),
+            confidence=officer.get("confidence", "low"),
+            researched_at=officer.get("researched_at", ""),
+            )
+
+    def get_officers(self, company_name: str) -> List[Dict]:
+        """Retrieve all officer profiles for a company."""
+        import json as _json
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company {name: $company_name})-[:HAS_OFFICER]->(o:Officer)
+                RETURN o
+                ORDER BY o.role
+            """, company_name=company_name)
+
+            officers = []
+            for record in result:
+                if record["o"]:
+                    o = _node_to_dict(record["o"])
+                    for field in ("education", "previous_roles", "key_achievements",
+                                  "recent_news", "publications_speaking",
+                                  "board_memberships", "risk_flags"):
+                        raw = o.get(field)
+                        if isinstance(raw, str):
+                            try:
+                                o[field] = _json.loads(raw)
+                            except Exception:
+                                o[field] = []
+                    officers.append(o)
+            return officers
+
     def add_peer_financial_data(self, target_company: str, peer_name: str,
                                 ticker: str, metrics: Dict) -> None:
         """Store EDGAR financial metrics on a PeerCompany node linked to the target."""

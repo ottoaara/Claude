@@ -177,6 +177,22 @@ export const api = {
     return fetchAPI(`/company/${encodeURIComponent(companyName)}/peer-comparison`);
   },
 
+  async getOfficers(companyName: string): Promise<{
+    company_name: string;
+    officers: Record<string, unknown>[];
+    total: number;
+  }> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/officers`);
+  },
+
+  async searchOfficer(name: string, company: string, role?: string): Promise<Record<string, unknown>> {
+    return fetchAPI('/officer/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, company, role: role ?? null }),
+    });
+  },
+
   async getStockAroundDates(ticker: string, dates: string[]): Promise<Record<string, {
     before: { date: string | null; close: number | null };
     on:     { date: string | null; close: number | null };
