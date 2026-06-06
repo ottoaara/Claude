@@ -6,6 +6,8 @@ import os
 import json
 from datetime import datetime, timedelta
 
+from .news_classifier import NewsClassifier
+
 
 class NewsAgent:
     """Agent for finding and analyzing negative/relevant news about companies"""
@@ -18,6 +20,7 @@ class NewsAgent:
             temperature=0
         )
         self.search_tool = DuckDuckGoSearchResults(num_results=10)
+        self.classifier = NewsClassifier()
 
     def search_negative_news(self, company_name: str, days_back: int = 90) -> List[Dict]:
         """Search for negative news about a company"""
@@ -180,17 +183,23 @@ Return valid JSON."""),
 
         # Combine and deduplicate
         all_news = negative_news + general_news
-        unique_news = {item.get("title", ""): item for item in all_news}.values()
-        unique_news = list(unique_news)
+        unique_news = list({item.get("title", ""): item for item in all_news}.values())
 
-        # Analyze sentiment
-        sentiment_analysis = self.analyze_news_sentiment(unique_news)
+        # Classify each item (sentiment, severity, event types, material flag)
+        classified = self.classifier.classify_batch(company_name, unique_news)
+
+        # Remove noise / promotional content
+        classified = self.classifier.filter_noise(classified)
+
+        # Aggregate into overall risk profile
+        analysis = self.classifier.aggregate(company_name, classified)
 
         return {
             "company_name": company_name,
-            "news_items": unique_news,
-            "analysis": sentiment_analysis,
-            "total_items": len(unique_news),
-            "negative_count": sum(1 for n in unique_news if n.get("sentiment") == "negative"),
+            "news_items": classified,
+            "analysis": analysis,
+            "total_items": len(classified),
+            "negative_count": sum(1 for n in classified if n.get("sentiment") == "negative"),
+            "material_event_count": sum(1 for n in classified if n.get("is_material")),
             "analyzed_at": datetime.now().isoformat()
         }
