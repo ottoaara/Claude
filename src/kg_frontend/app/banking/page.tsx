@@ -7,8 +7,9 @@ import InsightsOverview from "../../components/InsightsOverview";
 import FinancialMetrics from "../../components/FinancialMetrics";
 import IndustryComparison from "../../components/IndustryComparison";
 import GraphVisualization from "../../components/GraphVisualization";
+import NewsAnalysis from "../../components/NewsAnalysis";
 
-type ViewMode = 'summary' | 'financials' | 'industry' | 'graph';
+type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'graph';
 
 export default function BankingKGPage() {
   const [jobId, setJobId] = useState<string | null>(null);
@@ -118,6 +119,11 @@ export default function BankingKGPage() {
                   label="Industry Analysis"
                 />
                 <TabButton
+                  active={activeView === 'news'}
+                  onClick={() => setActiveView('news')}
+                  label="News & Sentiment"
+                />
+                <TabButton
                   active={activeView === 'graph'}
                   onClick={() => setActiveView('graph')}
                   label="Knowledge Graph"
@@ -146,6 +152,10 @@ export default function BankingKGPage() {
                   companyMetrics={researchResult?.dimensions?.company_metrics}
                   industryAverages={researchResult?.dimensions?.industry_averages}
                 />
+              )}
+
+              {activeView === 'news' && (
+                <NewsAnalysis companyName={companyName} />
               )}
 
               {activeView === 'graph' && (
