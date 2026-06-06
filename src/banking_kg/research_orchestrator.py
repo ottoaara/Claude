@@ -91,7 +91,9 @@ class BankingResearchOrchestrator:
         """Fire the live progress callback if one is registered."""
         if self._progress_callback:
             try:
-                self._progress_callback(list(completed_steps))
+                # Deduplicate while preserving order (operator.add accumulates duplicates)
+                unique = list(dict.fromkeys(completed_steps))
+                self._progress_callback(unique)
             except Exception:
                 pass
 

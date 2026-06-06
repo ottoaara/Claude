@@ -66,7 +66,7 @@ export default function ResearchProgress({
     return () => clearInterval(interval);
   }, [jobId, onComplete]);
 
-  const completedSteps = status?.progress?.completed_steps || [];
+  const completedSteps = [...new Set(status?.progress?.completed_steps || [])];
   const isStepComplete = (stepKey: string) => completedSteps.includes(stepKey);
   const isStepActive = (index: number) => {
     return (
@@ -74,9 +74,10 @@ export default function ResearchProgress({
     );
   };
 
-  const progressPercent = status
-    ? (completedSteps.length / STEPS.length) * 100
-    : 0;
+  const progressPercent = Math.min(
+    100,
+    status ? (completedSteps.length / STEPS.length) * 100 : 0
+  );
 
   return (
     <div className="max-w-4xl mx-auto">
