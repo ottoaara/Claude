@@ -95,8 +95,8 @@ export default function GraphVisualization({ companyName }: Props) {
       val: node.type === "Company" ? 20 : 10,
     })),
     links: graphData.edges.map((edge) => ({
-      source: edge.source || edge.from,
-      target: edge.target || edge.to,
+      source: edge.source || (edge as any).from,
+      target: edge.target || (edge as any).to,
       label: edge.type,
       data: edge.data,
     })),
@@ -117,7 +117,7 @@ export default function GraphVisualization({ companyName }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Graph Visualization */}
-      <div className="lg:col-span-2 bg-white/10 backdrop-blur-lg rounded-2xl overflow-hidden border border-white/20">
+      <div className="lg:col-span-2 bg-slate-900 rounded-2xl overflow-hidden border-2 border-gray-700 shadow-md">
         <div className="h-[700px] relative">
           <ForceGraph2D
             ref={graphRef}
@@ -189,54 +189,61 @@ export default function GraphVisualization({ companyName }: Props) {
       </div>
 
       {/* Node Details Panel */}
-      <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 h-[700px] overflow-y-auto">
-        <h3 className="text-xl font-bold text-white mb-4">Node Details</h3>
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-md p-5 h-[700px] overflow-y-auto">
+        <h3 className="text-xl font-bold text-[#D71E28] mb-4 border-b-4 border-[#D71E28] pb-3 uppercase tracking-wide">
+          Node Details
+        </h3>
 
         {selectedNode ? (
           <div className="space-y-4">
-            <div>
-              <p className="text-sm text-blue-200 mb-1">Type</p>
-              <p className="text-lg font-semibold text-white">
+            {/* Type badge */}
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0"
+                style={{ background: getNodeColor(selectedNode) }} />
+              <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded"
+                style={{ background: getNodeColor(selectedNode) + "22", color: getNodeColor(selectedNode) }}>
                 {selectedNode.type}
-              </p>
+              </span>
             </div>
 
             <div>
-              <p className="text-sm text-blue-200 mb-1">Name</p>
-              <p className="text-lg font-semibold text-white">
-                {selectedNode.label}
-              </p>
+              <p className="text-xs text-[#666666] font-bold uppercase tracking-wide mb-1">Name</p>
+              <p className="text-base font-semibold text-[#333333]">{selectedNode.label}</p>
             </div>
 
-            <div className="border-t border-white/20 pt-4">
-              <p className="text-sm text-blue-200 mb-2">Attributes</p>
-              <div className="space-y-2">
-                {Object.entries(selectedNode.data || {}).map(
-                  ([key, value]) => {
-                    // Skip internal properties
-                    if (key.startsWith("_") || key === "id") return null;
+            <div className="border-t-2 border-gray-100 pt-3 space-y-2">
+              <p className="text-xs text-[#666666] font-bold uppercase tracking-wide mb-2">Properties</p>
+              {Object.entries(selectedNode.data || {}).map(([key, value]) => {
+                if (!value && value !== 0 && value !== false) return null;
+                if (key === "id" || key === "timestamp") return null;
 
-                    return (
-                      <div key={key} className="text-sm">
-                        <span className="text-blue-300 font-medium">
-                          {key}:{" "}
-                        </span>
-                        <span className="text-white">
-                          {typeof value === "object"
-                            ? JSON.stringify(value, null, 2)
-                            : String(value)}
-                        </span>
-                      </div>
-                    );
-                  }
-                )}
-              </div>
+                let display: string;
+                if (Array.isArray(value)) {
+                  display = value.length ? value.join(", ") : "—";
+                } else if (typeof value === "object") {
+                  display = JSON.stringify(value);
+                } else {
+                  display = String(value);
+                }
+                if (display.length > 300) display = display.slice(0, 297) + "…";
+
+                return (
+                  <div key={key} className="text-sm border-b border-gray-50 pb-1">
+                    <span className="text-[#666666] font-semibold capitalize">
+                      {key.replace(/_/g, " ")}:{" "}
+                    </span>
+                    <span className="text-[#333333]">{display}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
-          <p className="text-gray-400 text-center mt-12">
-            Click on a node to see details
-          </p>
+          <div className="text-center mt-16">
+            <div className="text-4xl mb-3">🔍</div>
+            <p className="text-[#666666] font-semibold">Click a node to inspect</p>
+            <p className="text-xs text-gray-400 mt-1">Company, Financial, News, Product nodes all carry detail</p>
+          </div>
         )}
       </div>
     </div>

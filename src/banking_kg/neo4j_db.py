@@ -448,29 +448,57 @@ class BankingKnowledgeGraph:
             if not record:
                 return {"nodes": [], "edges": []}
 
+            def _node_id(n) -> str:
+                """Pick the best display ID for any node type."""
+                return n.get("name") or n.get("title") or n.get("id") or "unknown"
+
+            def _clean_data(d: dict) -> dict:
+                """Strip large blobs; parse JSON-string list fields."""
+                import json as _json
+                skip = {"data_json", "news_analysis", "temporal_summary"}
+                out = {}
+                for k, v in d.items():
+                    if k in skip:
+                        continue
+                    # Try to parse JSON-encoded lists back to lists
+                    if isinstance(v, str) and v.startswith("["):
+                        try:
+                            out[k] = _json.loads(v)
+                            continue
+                        except Exception:
+                            pass
+                    out[k] = v
+                return out
+
             nodes = [{"id": company_name, "label": company_name, "type": "Company",
-                     "data": _node_to_dict(record["c"])}]
+                      "data": _clean_data(_node_to_dict(record["c"]))}]
             edges = []
+            seen_ids = {company_name}
 
             for rel in record["relationships"]:
                 if rel:
+                    src = _node_id(rel.start_node)
+                    tgt = _node_id(rel.end_node)
                     edges.append({
-                        "from": rel.start_node["name"],
-                        "to": rel.end_node["name"],
+                        "source": src,
+                        "target": tgt,
                         "type": rel.type,
-                        "data": dict(rel)
                     })
 
             for node in record["nodes"]:
                 if node:
                     node_labels = list(node.labels)
                     node_type = node_labels[0] if node_labels else "Unknown"
-                    node_id = node.get("name") or node.get("id")
+                    node_id = _node_id(node)
+                    if node_id in seen_ids:
+                        continue
+                    seen_ids.add(node_id)
+                    raw = _node_to_dict(node)
                     nodes.append({
                         "id": node_id,
                         "label": node_id,
                         "type": node_type,
-                        "data": _node_to_dict(node)
+                        "data": _clean_data(raw),
                     })
 
             return {"nodes": nodes, "edges": edges}
