@@ -151,6 +151,10 @@ export const api = {
     return fetchAPI('/companies');
   },
 
+  async getFreshness(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/freshness`);
+  },
+
   async getStockAroundDates(ticker: string, dates: string[]): Promise<Record<string, {
     before: { date: string | null; close: number | null };
     on:     { date: string | null; close: number | null };

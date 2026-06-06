@@ -251,6 +251,118 @@ def list_companies():
     }
 
 
+@app.get("/company/{company_name}/freshness")
+def get_company_freshness(company_name: str):
+    """
+    Return per-dimension data freshness scores for a company.
+    Uses stored relevance_scores and temporal_summary from Neo4j,
+    and re-computes live freshness for each item.
+    """
+    from .temporal import TemporalDimension
+    from datetime import datetime
+
+    graph_data = kg.get_company_graph(company_name)
+    if not graph_data:
+        raise HTTPException(status_code=404, detail=f"Company '{company_name}' not found")
+
+    temporal = TemporalDimension()
+
+    def item_age_days(item: dict) -> int | None:
+        for field in ("filing_date", "date", "timestamp", "scraped_at", "discovered_at"):
+            val = item.get(field)
+            if val:
+                try:
+                    if isinstance(val, str):
+                        dt = datetime.fromisoformat(val.replace("Z", "+00:00")) if "T" in val \
+                             else datetime.strptime(val[:10], "%Y-%m-%d")
+                    else:
+                        dt = val
+                    return max(0, (datetime.now() - dt.replace(tzinfo=None)).days)
+                except Exception:
+                    continue
+        return None
+
+    def freshness_label(score: float) -> str:
+        if score >= 0.8: return "fresh"
+        if score >= 0.5: return "recent"
+        if score >= 0.3: return "aged"
+        return "stale"
+
+    dimensions = {}
+
+    # Financials
+    fin_items = []
+    for f in graph_data.get("financials", []):
+        age = item_age_days(f)
+        score = f.get("relevance_score") or temporal.calculate_recency_score(
+            f.get("filing_date", f.get("date", "")), "financial")
+        fin_items.append({
+            "label": f"{f.get('filing_type','?')} {f.get('period','')}",
+            "age_days": age,
+            "score": round(float(score), 3),
+            "freshness": freshness_label(float(score)),
+            "source": f.get("source", "EDGAR"),
+        })
+    dimensions["financials"] = {
+        "items": fin_items,
+        "avg_score": round(sum(i["score"] for i in fin_items) / len(fin_items), 3) if fin_items else 0,
+        "window_days": temporal.relevance_windows["financial"],
+        "needs_refresh": any(i["freshness"] in ("aged", "stale") for i in fin_items),
+    }
+
+    # News
+    news_items = []
+    for n in graph_data.get("news", []):
+        age = item_age_days(n)
+        score = n.get("relevance_score") or temporal.calculate_recency_score(
+            str(n.get("date", "")), "news")
+        news_items.append({
+            "label": n.get("title", "")[:60],
+            "age_days": age,
+            "score": round(float(score), 3),
+            "freshness": freshness_label(float(score)),
+            "sentiment": n.get("sentiment"),
+        })
+    dimensions["news"] = {
+        "items": news_items,
+        "avg_score": round(sum(i["score"] for i in news_items) / len(news_items), 3) if news_items else 0,
+        "window_days": temporal.relevance_windows["news"],
+        "needs_refresh": any(i["freshness"] in ("aged", "stale") for i in news_items),
+    }
+
+    # Products
+    prod_items = []
+    for p in graph_data.get("products", []):
+        age = item_age_days(p)
+        score = p.get("relevance_score") or temporal.calculate_recency_score(
+            str(p.get("timestamp", "")), "products")
+        prod_items.append({
+            "label": p.get("name", "")[:60],
+            "age_days": age,
+            "score": round(float(score), 3),
+            "freshness": freshness_label(float(score)),
+        })
+    dimensions["products"] = {
+        "items": prod_items,
+        "avg_score": round(sum(i["score"] for i in prod_items) / len(prod_items), 3) if prod_items else 0,
+        "window_days": temporal.relevance_windows["products"],
+        "needs_refresh": any(i["freshness"] in ("aged", "stale") for i in prod_items),
+    }
+
+    # Overall score
+    all_scores = [i["score"] for dim in dimensions.values() for i in dim["items"]]
+    overall = round(sum(all_scores) / len(all_scores), 3) if all_scores else 0
+
+    return {
+        "company_name": company_name,
+        "overall_score": overall,
+        "overall_freshness": freshness_label(overall),
+        "dimensions": dimensions,
+        "temporal_summary": graph_data.get("temporal_summary"),
+        "freshness_updated_at": graph_data.get("company", {}).get("freshness_updated_at"),
+    }
+
+
 @app.get("/stock/{ticker}/around-dates")
 def get_stock_around_dates(ticker: str, dates: str):
     """

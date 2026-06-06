@@ -69,13 +69,14 @@ class BankingKnowledgeGraph:
         import json
         with self.driver.session() as session:
             financial_id = f"{company_name}_{filing_type}_{period}"
-            # Flatten data for Neo4j - store complex data as JSON string
             flat_data = {
                 "revenue": data.get("revenue"),
                 "net_income": data.get("net_income"),
                 "total_assets": data.get("total_assets"),
                 "cash": data.get("cash_and_equivalents"),
-                "data_json": json.dumps(data)  # Store full data as JSON string
+                "data_json": json.dumps(data),
+                "relevance_score": data.get("relevance_score", 0.5),
+                "filing_date": data.get("filing_date", ""),
             }
             result = session.run("""
                 MATCH (c:Company {name: $company_name})
@@ -88,6 +89,8 @@ class BankingKnowledgeGraph:
                     f.total_assets = $total_assets,
                     f.cash = $cash,
                     f.data_json = $data_json,
+                    f.relevance_score = $relevance_score,
+                    f.filing_date = $filing_date,
                     f.timestamp = datetime()
                 MERGE (c)-[:HAS_FILING]->(f)
                 RETURN f
@@ -99,7 +102,8 @@ class BankingKnowledgeGraph:
     def add_news(self, company_name: str, title: str, summary: str, url: str,
                 date: str, sentiment: str = "neutral", source: str = "web",
                 severity: str = "low", event_types: list = None,
-                is_material: bool = False, key_facts: list = None) -> Dict:
+                is_material: bool = False, key_facts: list = None,
+                relevance_score: float = 0.5) -> Dict:
         """Add negative/relevant news with classifier fields"""
         import json
         with self.driver.session() as session:
@@ -117,6 +121,7 @@ class BankingKnowledgeGraph:
                     n.is_material = $is_material,
                     n.key_facts = $key_facts,
                     n.source = $source,
+                    n.relevance_score = $relevance_score,
                     n.timestamp = datetime()
                 MERGE (c)-[:MENTIONED_IN]->(n)
                 RETURN n
@@ -125,7 +130,8 @@ class BankingKnowledgeGraph:
                severity=severity,
                event_types=json.dumps(event_types or []),
                is_material=is_material,
-               key_facts=json.dumps(key_facts or []))
+               key_facts=json.dumps(key_facts or []),
+               relevance_score=relevance_score)
             rec = result.single()
             return dict(rec["n"]) if rec else None
 
@@ -138,8 +144,19 @@ class BankingKnowledgeGraph:
                 SET c.news_analysis = $analysis_json
             """, company_name=company_name, analysis_json=json.dumps(analysis))
 
+    def save_temporal_summary(self, company_name: str, summary: Dict) -> None:
+        """Store the temporal/freshness summary on the Company node"""
+        import json
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (c:Company {name: $company_name})
+                SET c.temporal_summary = $summary_json,
+                    c.freshness_updated_at = datetime()
+            """, company_name=company_name, summary_json=json.dumps(summary))
+
     def add_product(self, company_name: str, product_name: str, category: str,
-                   description: str, features: List[str] = None, **attributes) -> Dict:
+                   description: str, features: List[str] = None,
+                   relevance_score: float = 0.5, **attributes) -> Dict:
         """Add product information"""
         with self.driver.session() as session:
             product_id = f"{company_name}_{product_name.replace(' ', '_')}"
@@ -150,13 +167,15 @@ class BankingKnowledgeGraph:
                     p.category = $category,
                     p.description = $description,
                     p.features = $features,
+                    p.relevance_score = $relevance_score,
                     p.timestamp = datetime(),
                     p += $attributes
                 MERGE (c)-[:OFFERS]->(p)
                 RETURN p
             """, company_name=company_name, product_id=product_id,
                product_name=product_name, category=category, description=description,
-               features=features or [], attributes=attributes)
+               features=features or [], relevance_score=relevance_score,
+               attributes=attributes)
             rec = result.single()
             return dict(rec["p"]) if rec else None
 
@@ -235,11 +254,20 @@ class BankingKnowledgeGraph:
                 except Exception:
                     pass
 
+            temporal_summary = None
+            raw_temporal = company_data.pop("temporal_summary", None)
+            if raw_temporal:
+                try:
+                    temporal_summary = json.loads(raw_temporal)
+                except Exception:
+                    pass
+
             return {
                 "company": company_data,
                 "financials": [dict(f) for f in record["financials"] if f],
                 "news": news_items,
                 "news_analysis": news_analysis,
+                "temporal_summary": temporal_summary,
                 "products": [dict(p) for p in record["products"] if p],
                 "industries": [dict(i) for i in record["industries"] if i],
                 "peers": [dict(p) for p in record["peers"] if p]

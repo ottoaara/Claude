@@ -8,8 +8,9 @@ import FinancialMetrics from "../../components/FinancialMetrics";
 import IndustryComparison from "../../components/IndustryComparison";
 import GraphVisualization from "../../components/GraphVisualization";
 import NewsAnalysis from "../../components/NewsAnalysis";
+import DataFreshness from "../../components/DataFreshness";
 
-type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'graph';
+type ViewMode = 'summary' | 'financials' | 'industry' | 'news' | 'freshness' | 'graph';
 
 export default function BankingKGPage() {
   const [jobId, setJobId] = useState<string | null>(null);
@@ -124,6 +125,11 @@ export default function BankingKGPage() {
                   label="News & Sentiment"
                 />
                 <TabButton
+                  active={activeView === 'freshness'}
+                  onClick={() => setActiveView('freshness')}
+                  label="Data Freshness"
+                />
+                <TabButton
                   active={activeView === 'graph'}
                   onClick={() => setActiveView('graph')}
                   label="Knowledge Graph"
@@ -159,6 +165,10 @@ export default function BankingKGPage() {
                   companyName={companyName}
                   ticker={researchResult?.dimensions?.company_info?.ticker || undefined}
                 />
+              )}
+
+              {activeView === 'freshness' && (
+                <DataFreshness companyName={companyName} />
               )}
 
               {activeView === 'graph' && (

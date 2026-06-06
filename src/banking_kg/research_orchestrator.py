@@ -333,6 +333,7 @@ class BankingResearchOrchestrator:
                     event_types=news_item.get("event_types", []),
                     is_material=news_item.get("is_material", False),
                     key_facts=news_item.get("key_facts", []),
+                    relevance_score=news_item.get("relevance_score", 0.5),
                 )
 
             # Save aggregate news analysis on Company node
@@ -347,6 +348,7 @@ class BankingResearchOrchestrator:
                     product.get("category", ""),
                     product.get("description", ""),
                     features=product.get("features", []),
+                    relevance_score=product.get("relevance_score", 0.5),
                     pricing_tier=product.get("pricing_tier"),
                     revenue_impact=product.get("revenue_impact")
                 )
@@ -369,6 +371,11 @@ class BankingResearchOrchestrator:
 
             state["graph_populated"] = True
             state["completed_steps"].append("graph_populated")
+
+            # Save temporal summary to Company node for later retrieval
+            temporal_summary = state.get("temporal_summary", {})
+            if temporal_summary:
+                self.kg.save_temporal_summary(state["company_name"], temporal_summary)
 
         except Exception as e:
             error_msg = f"Graph population error: {str(e)}"
