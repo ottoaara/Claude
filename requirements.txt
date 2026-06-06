@@ -17,3 +17,4 @@ pandas
 numpy
 pydantic-settings
 duckduckgo-search
+yfinance>=0.2.40

@@ -151,6 +151,18 @@ export const api = {
     return fetchAPI('/companies');
   },
 
+  async getStockAroundDates(ticker: string, dates: string[]): Promise<Record<string, {
+    before: { date: string | null; close: number | null };
+    on:     { date: string | null; close: number | null };
+    after:  { date: string | null; close: number | null };
+    change_pct: number | null;
+    color: 'red' | 'green' | 'black' | 'gray';
+  }>> {
+    if (!ticker || dates.length === 0) return {};
+    const dateParam = dates.join(',');
+    return fetchAPI(`/stock/${encodeURIComponent(ticker)}/around-dates?dates=${encodeURIComponent(dateParam)}`);
+  },
+
   // System endpoints
   async healthCheck(): Promise<{ status: string; neo4j_connected: boolean; orchestrator_ready: boolean }> {
     return fetchAPI('/health');

@@ -155,7 +155,10 @@ export default function BankingKGPage() {
               )}
 
               {activeView === 'news' && (
-                <NewsAnalysis companyName={companyName} />
+                <NewsAnalysis
+                  companyName={companyName}
+                  ticker={researchResult?.dimensions?.company_info?.ticker || undefined}
+                />
               )}
 
               {activeView === 'graph' && (

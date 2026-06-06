@@ -251,6 +251,89 @@ def list_companies():
     }
 
 
+@app.get("/stock/{ticker}/around-dates")
+def get_stock_around_dates(ticker: str, dates: str):
+    """
+    Fetch closing prices for the day before and day after each date.
+    dates: comma-separated list of ISO date strings (e.g. 2025-01-10,2025-03-05)
+    Returns a dict keyed by date with {before, on, after, change_pct, color}
+    """
+    try:
+        import yfinance as yf
+        from datetime import date, timedelta
+
+        date_list = [d.strip() for d in dates.split(",") if d.strip()]
+        if not date_list:
+            return {}
+
+        # Determine the full window we need to download (min - 5 days, max + 5 days)
+        parsed = sorted(date.fromisoformat(d) for d in date_list)
+        start = parsed[0] - timedelta(days=7)
+        end   = parsed[-1] + timedelta(days=7)
+
+        hist = yf.Ticker(ticker.upper()).history(start=start.isoformat(), end=end.isoformat())
+        if hist.empty:
+            return {}
+
+        # Build a lookup: trading-date string -> close price
+        prices = {str(ts.date()): round(float(close), 2)
+                  for ts, close in hist["Close"].items()}
+        trading_days = sorted(prices.keys())
+
+        def nearest_trading_day(target_str: str, offset: int) -> str | None:
+            """Return the trading day 'offset' days away from target (±1 means prev/next session)."""
+            try:
+                idx = trading_days.index(target_str)
+                ni = idx + offset
+                if 0 <= ni < len(trading_days):
+                    return trading_days[ni]
+            except ValueError:
+                # target not a trading day — find nearest
+                for i, td in enumerate(trading_days):
+                    if td >= target_str:
+                        idx = i
+                        ni = idx + offset
+                        if 0 <= ni < len(trading_days):
+                            return trading_days[ni]
+            return None
+
+        result = {}
+        for d in date_list:
+            before_key = nearest_trading_day(d, -1)
+            on_key     = nearest_trading_day(d,  0)
+            after_key  = nearest_trading_day(d,  1)
+
+            before_price = prices.get(before_key) if before_key else None
+            on_price     = prices.get(on_key)     if on_key     else None
+            after_price  = prices.get(after_key)  if after_key  else None
+
+            # Color rule: compare close on article day vs close day after
+            change_pct = None
+            color = "gray"
+            ref = on_price or before_price
+            if ref and after_price:
+                change_pct = round((after_price - ref) / ref * 100, 2)
+                if change_pct <= -2.0:
+                    color = "red"
+                elif change_pct >= 2.0:
+                    color = "green"
+                else:
+                    color = "black"
+
+            result[d] = {
+                "before":     {"date": before_key, "close": before_price},
+                "on":         {"date": on_key,     "close": on_price},
+                "after":      {"date": after_key,  "close": after_price},
+                "change_pct": change_pct,
+                "color":      color,
+            }
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

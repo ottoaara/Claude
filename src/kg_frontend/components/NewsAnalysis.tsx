@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, APIError } from "../lib/api";
+import StockSparkline from "./StockSparkline";
 
 interface NewsItem {
   title: string;
@@ -26,6 +27,7 @@ interface NewsAnalysis {
 
 interface Props {
   companyName: string;
+  ticker?: string;
 }
 
 function SentimentBadge({ sentiment }: { sentiment?: string }) {
@@ -70,20 +72,38 @@ function RiskLevel({ level }: { level?: string }) {
   );
 }
 
-export default function NewsAnalysis({ companyName }: Props) {
+export default function NewsAnalysis({ companyName, ticker }: Props) {
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [analysis, setAnalysis] = useState<NewsAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | "material" | "negative">("all");
+  const [stockData, setStockData] = useState<Record<string, any>>({});
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         const data = await api.getCompanyGraph(companyName);
-        setNewsItems(data.news || []);
+        const items: NewsItem[] = data.news || [];
+        setNewsItems(items);
         setAnalysis(data.news_analysis || null);
+
+        // Batch-fetch stock prices for all article dates if ticker is known
+        const resolvedTicker = ticker || data.company?.ticker;
+        if (resolvedTicker && items.length > 0) {
+          const dates = [...new Set(
+            items.map((n) => n.date).filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+          )];
+          if (dates.length > 0) {
+            try {
+              const prices = await api.getStockAroundDates(resolvedTicker, dates);
+              setStockData(prices);
+            } catch {
+              // Stock data is best-effort; don't block news display
+            }
+          }
+        }
       } catch (err) {
         if (err instanceof APIError) {
           setError(err.message);
@@ -95,7 +115,7 @@ export default function NewsAnalysis({ companyName }: Props) {
       }
     };
     fetchData();
-  }, [companyName]);
+  }, [companyName, ticker]);
 
   if (loading) {
     return (
@@ -245,56 +265,67 @@ export default function NewsAnalysis({ companyName }: Props) {
                     : "border-gray-300"
                 }`}
               >
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <h4 className="text-sm font-bold text-[#333333] flex-1">{item.title}</h4>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <SentimentBadge sentiment={item.sentiment} />
-                    <SeverityBadge severity={item.severity} />
-                  </div>
-                </div>
-
-                {item.summary && (
-                  <p className="text-xs text-[#555555] mb-2">{item.summary}</p>
-                )}
-
-                {item.key_facts && item.key_facts.length > 0 && (
-                  <ul className="mb-2 space-y-0.5">
-                    {item.key_facts.map((f, fi) => (
-                      <li key={fi} className="text-xs text-[#666666] flex items-start gap-1">
-                        <span className="text-[#D71E28] font-bold">•</span> {f}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-[#999999]">{item.date || "N/A"}</span>
-                    {item.is_material && (
-                      <span className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded uppercase tracking-wide">
-                        Material
-                      </span>
-                    )}
-                    {item.event_types && item.event_types.length > 0 && (
-                      <div className="flex gap-1">
-                        {item.event_types.slice(0, 2).map((e, ei) => (
-                          <span key={ei} className="text-xs text-[#666666] bg-gray-200 px-1.5 py-0.5 rounded uppercase tracking-wide">
-                            {e.replace(/_/g, " ")}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {item.url && (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-[#D71E28] hover:underline font-semibold"
-                    >
-                      Read More →
-                    </a>
+                <div className="flex items-start gap-3">
+                  {/* Sparkline — shown when stock data is available for this date */}
+                  {item.date && stockData[item.date] && (
+                    <div className="flex-shrink-0 flex flex-col items-center pt-1">
+                      <StockSparkline data={stockData[item.date]} width={88} height={38} />
+                      <span className="text-xs text-gray-400 mt-0.5 whitespace-nowrap">±1 day</span>
+                    </div>
                   )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <h4 className="text-sm font-bold text-[#333333] flex-1">{item.title}</h4>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <SentimentBadge sentiment={item.sentiment} />
+                        <SeverityBadge severity={item.severity} />
+                      </div>
+                    </div>
+
+                    {item.summary && (
+                      <p className="text-xs text-[#555555] mb-2">{item.summary}</p>
+                    )}
+
+                    {item.key_facts && item.key_facts.length > 0 && (
+                      <ul className="mb-2 space-y-0.5">
+                        {item.key_facts.map((f, fi) => (
+                          <li key={fi} className="text-xs text-[#666666] flex items-start gap-1">
+                            <span className="text-[#D71E28] font-bold">•</span> {f}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#999999]">{item.date || "N/A"}</span>
+                        {item.is_material && (
+                          <span className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded uppercase tracking-wide">
+                            Material
+                          </span>
+                        )}
+                        {item.event_types && item.event_types.length > 0 && (
+                          <div className="flex gap-1">
+                            {item.event_types.slice(0, 2).map((e, ei) => (
+                              <span key={ei} className="text-xs text-[#666666] bg-gray-200 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                                {e.replace(/_/g, " ")}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {item.url && (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-[#D71E28] hover:underline font-semibold"
+                        >
+                          Read More →
+                        </a>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
