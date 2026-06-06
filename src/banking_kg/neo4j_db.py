@@ -97,8 +97,11 @@ class BankingKnowledgeGraph:
             return dict(rec["f"]) if rec else None
 
     def add_news(self, company_name: str, title: str, summary: str, url: str,
-                date: str, sentiment: str = "neutral", source: str = "web") -> Dict:
-        """Add negative/relevant news"""
+                date: str, sentiment: str = "neutral", source: str = "web",
+                severity: str = "low", event_types: list = None,
+                is_material: bool = False, key_facts: list = None) -> Dict:
+        """Add negative/relevant news with classifier fields"""
+        import json
         with self.driver.session() as session:
             news_id = f"{company_name}_{hash(url)}"
             result = session.run("""
@@ -109,14 +112,31 @@ class BankingKnowledgeGraph:
                     n.url = $url,
                     n.date = date($date),
                     n.sentiment = $sentiment,
+                    n.severity = $severity,
+                    n.event_types = $event_types,
+                    n.is_material = $is_material,
+                    n.key_facts = $key_facts,
                     n.source = $source,
                     n.timestamp = datetime()
                 MERGE (c)-[:MENTIONED_IN]->(n)
                 RETURN n
             """, company_name=company_name, news_id=news_id, title=title,
-               summary=summary, url=url, date=date, sentiment=sentiment, source=source)
+               summary=summary, url=url, date=date, sentiment=sentiment, source=source,
+               severity=severity,
+               event_types=json.dumps(event_types or []),
+               is_material=is_material,
+               key_facts=json.dumps(key_facts or []))
             rec = result.single()
             return dict(rec["n"]) if rec else None
+
+    def save_news_analysis(self, company_name: str, analysis: Dict) -> None:
+        """Store the aggregate news_analysis on the Company node"""
+        import json
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (c:Company {name: $company_name})
+                SET c.news_analysis = $analysis_json
+            """, company_name=company_name, analysis_json=json.dumps(analysis))
 
     def add_product(self, company_name: str, product_name: str, category: str,
                    description: str, features: List[str] = None, **attributes) -> Dict:
@@ -189,10 +209,37 @@ class BankingKnowledgeGraph:
             if not record:
                 return None
 
+            import json
+            # Parse news items — deserialise JSON-stored list fields
+            news_items = []
+            for n in record["news"]:
+                if not n:
+                    continue
+                item = dict(n)
+                for field in ("event_types", "key_facts"):
+                    raw = item.get(field)
+                    if isinstance(raw, str):
+                        try:
+                            item[field] = json.loads(raw)
+                        except Exception:
+                            item[field] = []
+                news_items.append(item)
+
+            # Parse news_analysis stored on Company node
+            company_data = dict(record["c"])
+            news_analysis = None
+            raw_analysis = company_data.pop("news_analysis", None)
+            if raw_analysis:
+                try:
+                    news_analysis = json.loads(raw_analysis)
+                except Exception:
+                    pass
+
             return {
-                "company": dict(record["c"]),
+                "company": company_data,
                 "financials": [dict(f) for f in record["financials"] if f],
-                "news": [dict(n) for n in record["news"] if n],
+                "news": news_items,
+                "news_analysis": news_analysis,
                 "products": [dict(p) for p in record["products"] if p],
                 "industries": [dict(i) for i in record["industries"] if i],
                 "peers": [dict(p) for p in record["peers"] if p]

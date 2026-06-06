@@ -300,16 +300,25 @@ class BankingResearchOrchestrator:
                         filing
                     )
 
-            # Add news
-            for news_item in state.get("news_data", {}).get("news_items", []):
+            # Add news (with all classifier fields)
+            news_data = state.get("news_data", {})
+            for news_item in news_data.get("news_items", []):
                 self.kg.add_news(
                     state["company_name"],
                     news_item.get("title", ""),
                     news_item.get("summary", ""),
                     news_item.get("url", ""),
                     news_item.get("date", datetime.now().strftime("%Y-%m-%d")),
-                    sentiment=news_item.get("sentiment", "neutral")
+                    sentiment=news_item.get("sentiment", "neutral"),
+                    severity=news_item.get("severity", "low"),
+                    event_types=news_item.get("event_types", []),
+                    is_material=news_item.get("is_material", False),
+                    key_facts=news_item.get("key_facts", []),
                 )
+
+            # Save aggregate news analysis on Company node
+            if news_data.get("analysis"):
+                self.kg.save_news_analysis(state["company_name"], news_data["analysis"])
 
             # Add products
             for product in state.get("product_data", {}).get("products", []):
