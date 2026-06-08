@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { api } from "../lib/api";
+import RelationshipMap from "./RelationshipMap";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -87,7 +89,7 @@ function SearchLinks({ name, company }: { name: string; company: string }) {
           rel="noopener noreferrer"
           className={`text-xs font-bold ${l.color} hover:underline border border-gray-200 rounded px-1.5 py-0.5`}
         >
-          {l.label} ↗
+          {l.label}
         </a>
       ))}
     </div>
@@ -194,7 +196,7 @@ function OfficerCard({ officer, onRefresh, refreshing }: {
                 rel="noopener noreferrer"
                 className="text-xs text-blue-600 hover:underline font-semibold mt-1 inline-block"
               >
-                LinkedIn profile ↗
+                LinkedIn profile
               </a>
             )}
           </div>
@@ -209,7 +211,7 @@ function OfficerCard({ officer, onRefresh, refreshing }: {
 
         {hasRisk && (
           <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
-            <p className="text-xs font-bold text-red-800 uppercase tracking-wide mb-1">⚠ Risk Flags</p>
+            <p className="text-xs font-bold text-red-800 uppercase tracking-wide mb-1">Risk Flags</p>
             {officer.risk_flags!.map((f, i) => (
               <p key={i} className="text-xs text-red-700">• {f}</p>
             ))}
@@ -232,7 +234,7 @@ function OfficerCard({ officer, onRefresh, refreshing }: {
           onClick={() => setExpanded(!expanded)}
           className="text-xs text-[#D71E28] font-bold hover:underline"
         >
-          {expanded ? "▲ Less" : "▼ Full profile"}
+          {expanded ? "Less" : "Full profile"}
         </button>
         {expanded && (
           <div className="space-y-3 pt-2 border-t border-gray-100">
@@ -432,7 +434,7 @@ export default function OfficerResearch({ companyName }: Props) {
                 onClick={fetchOfficers}
                 className="text-xs text-[#D71E28] hover:underline font-bold ml-2"
               >
-                ↺ Refresh
+              Refresh
               </button>
             </div>
           </div>
@@ -477,8 +479,136 @@ export default function OfficerResearch({ companyName }: Props) {
               </div>
             </div>
           )}
+
+          {/* Board Interlock Map */}
+          <BoardInterlockMap companyName={companyName} />
+
+          {/* Relationship Map: shared boards + alumni with bank officers */}
+          <RelationshipMap companyName={companyName} />
         </>
       )}
+
+      {/* These always render — they fetch independently from officer list */}
+      {!loading && officers.length === 0 && (
+        <>
+          <BoardInterlockMap companyName={companyName} />
+          <RelationshipMap companyName={companyName} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Board Interlock Map ──────────────────────────────────────────────────────
+interface BoardSeat {
+  company: string;
+  wf_officers: { name: string; role_short: string }[];
+}
+
+interface InterlockEntry {
+  officer_name: string;
+  officer_role: string;
+  officer_role_short: string;
+  board_seats: BoardSeat[];
+}
+
+interface InterlockResponse {
+  interlocks: InterlockEntry[];
+  shared_with_wf_count: number;
+  shared_with_wf: string[];
+}
+
+function BoardInterlockMap({ companyName }: { companyName: string }) {
+  const [data, setData] = useState<InterlockResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getBoardInterlocks(companyName)
+      .then((res: any) => setData(res))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [companyName]);
+
+  if (loading) return null;
+  const interlocks = data?.interlocks ?? [];
+  if (interlocks.length === 0) return null;
+
+  const allCompanies = Array.from(new Set(interlocks.flatMap(d => d.board_seats.map(s => s.company))));
+  const sharedCount = data?.shared_with_wf_count ?? 0;
+
+  return (
+    <div className="bg-white rounded-lg border-2 border-gray-200 shadow-md p-5">
+      <div className="flex items-start justify-between mb-1">
+        <h4 className="text-lg font-bold text-[#D71E28] border-b-4 border-[#D71E28] pb-2 inline-block uppercase tracking-wide">
+          Board Interlock Map
+        </h4>
+        {sharedCount > 0 && (
+          <span className="text-xs bg-[#D71E28] text-white font-bold px-2 py-1 rounded">
+            {sharedCount} shared with WF
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-[#666666] mb-5">
+        Officers who sit on external boards. Boards highlighted in gold are also held by a Wells Fargo officer — a direct warm introduction path.
+      </p>
+
+      <div className="space-y-4">
+        {interlocks.map((entry) => (
+          <div key={entry.officer_name} className="flex gap-4 items-start">
+            {/* Officer pill */}
+            <div className="flex-shrink-0 w-48">
+              <div className="bg-[#D71E28] text-white rounded-lg px-3 py-2 text-center">
+                <p className="text-xs font-bold truncate">{entry.officer_name}</p>
+                <p className="text-[10px] opacity-80">{entry.officer_role_short || entry.officer_role}</p>
+              </div>
+            </div>
+
+            {/* Board seats */}
+            <div className="flex-1 flex items-center gap-2 flex-wrap pt-1">
+              <span className="text-gray-400 text-xs font-mono">-</span>
+              {entry.board_seats.map((seat, i) => {
+                const wfOfficers = seat.wf_officers ?? [];
+                const hasWF = wfOfficers.length > 0;
+                const wfNames = wfOfficers.map((w: any) => `${w.name} (${w.role_short})`).join(", ");
+                return (
+                  <div key={i} className="relative group">
+                    <a
+                      href={`https://www.google.com/search?q=${encodeURIComponent(seat.company + " board of directors")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        hasWF
+                          ? "bg-[#FFCD41] border-2 border-[#D4A800] text-[#333333] font-bold hover:bg-yellow-300"
+                          : "bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100"
+                      }`}
+                    >
+                      {seat.company}
+                      {hasWF && (
+                        <span className="ml-1 text-[9px] font-black uppercase tracking-widest text-[#D71E28]">WF</span>
+                      )}
+                    </a>
+                    {hasWF && (
+                      <div className="absolute bottom-full left-0 mb-2 z-50 hidden group-hover:block w-64 bg-[#1a1a1a] text-white rounded-lg shadow-xl px-3 py-2 pointer-events-none">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#FFCD41] mb-1">WF Connection</p>
+                        <p className="text-xs leading-snug">{wfNames}</p>
+                        <p className="text-[10px] text-gray-400 mt-1">also sit on the {seat.company} board</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-gray-100 flex gap-6 text-xs text-[#666666]">
+        <span><strong className="text-[#333333]">{interlocks.length}</strong> officers with external board seats</span>
+        <span><strong className="text-[#333333]">{allCompanies.length}</strong> external companies</span>
+        {sharedCount > 0 && (
+          <span className="text-[#D71E28] font-bold"><strong>{sharedCount}</strong> shared with a WF officer</span>
+        )}
+      </div>
     </div>
   );
 }

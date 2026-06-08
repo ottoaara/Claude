@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 interface FinancialData {
   period?: string;
   filing_type?: string;
@@ -8,16 +10,21 @@ interface FinancialData {
   net_income?: number;
   operating_income?: number;
   assets?: number;
+  total_assets?: number;
   liabilities?: number;
+  total_liabilities?: number;
   equity?: number;
+  stockholders_equity?: number;
   operating_cash_flow?: number;
   investing_cash_flow?: number;
   financing_cash_flow?: number;
 }
 
 interface Props {
-  financials: FinancialData[];
+  companyName: string;
 }
+
+const API = "http://localhost:8000";
 
 function formatCurrency(value: number | undefined): string {
   if (value === undefined || value === null) return 'N/A';
@@ -26,7 +33,7 @@ function formatCurrency(value: number | undefined): string {
     currency: 'USD',
     notation: 'compact',
     maximumFractionDigits: 1
-  }).format(value * 1_000_000); // Assuming values in millions
+  }).format(value * 1_000_000);
 }
 
 function formatPercent(value: number | undefined): string {
@@ -34,33 +41,62 @@ function formatPercent(value: number | undefined): string {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
 }
 
-export default function FinancialMetrics({ financials }: Props) {
-  console.log('FinancialMetrics received:', financials);
-  console.log('Type:', typeof financials, 'Is array:', Array.isArray(financials));
+function normalise(f: any): FinancialData {
+  return {
+    period: f.filing_period || f.period || "Unknown",
+    filing_type: f.filing_type || "10-K",
+    filing_date: f.filing_date || "",
+    revenue: f.revenue,
+    net_income: f.net_income,
+    operating_income: f.operating_income,
+    assets: f.total_assets ?? f.assets,
+    liabilities: f.total_liabilities ?? f.liabilities,
+    equity: f.stockholders_equity ?? f.equity,
+    operating_cash_flow: f.operating_cash_flow,
+    investing_cash_flow: f.investing_cash_flow,
+    financing_cash_flow: f.financing_cash_flow,
+  };
+}
 
-  if (!financials || !Array.isArray(financials) || financials.length === 0) {
-    console.warn('No financial data - financials is:', financials);
+export default function FinancialMetrics({ companyName }: Props) {
+  const [financials, setFinancials] = useState<FinancialData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!companyName) return;
+    setLoading(true);
+    fetch(`${API}/company/${encodeURIComponent(companyName)}/graph`)
+      .then(r => r.json())
+      .then(d => {
+        const raw = d.financials || [];
+        setFinancials(raw.map(normalise));
+      })
+      .catch(() => setFinancials([]))
+      .finally(() => setLoading(false));
+  }, [companyName]);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg p-12 text-center border-2 border-gray-200">
+        <div className="inline-block w-10 h-10 border-4 border-[#D71E28] border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-[#666666] font-semibold">Loading financial data…</p>
+      </div>
+    );
+  }
+
+  if (!financials.length) {
     return (
       <div className="bg-white rounded-lg p-6 border-2 border-gray-200">
         <p className="text-[#666666] text-center font-semibold">No financial data available</p>
         <p className="text-xs text-[#666666] text-center mt-2">
           Make sure to provide a valid stock ticker when researching the company.
         </p>
-        <details className="mt-4 text-xs text-[#666666]">
-          <summary className="cursor-pointer text-center">Debug Info</summary>
-          <pre className="mt-2 p-2 bg-gray-100 rounded overflow-auto">
-            {JSON.stringify(financials, null, 2)}
-          </pre>
-        </details>
       </div>
     );
   }
 
   const latest = financials[0];
   const previous = financials[1];
-
-  console.log('Latest filing:', latest);
-  console.log('Previous filing:', previous);
 
   const calculateChange = (current: number | undefined, prev: number | undefined): number | undefined => {
     if (!current || !prev) return undefined;

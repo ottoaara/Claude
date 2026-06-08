@@ -20,7 +20,7 @@ See [docs/agent_flow.md](docs/agent_flow.md) for the LangGraph agent workflow di
 - **Python 3.10+** with virtual environment
 - **Node.js 18+** and npm
 - **Docker** — for Neo4j graph database
-- **Anthropic API key** — [console.anthropic.com](https://console.anthropic.com)
+- **Anthropic API key** OR **Ollama** (local) — see LLM Configuration below
 
 ### 1. Clone & configure
 
@@ -31,11 +31,16 @@ cp .env.example .env   # then edit .env
 
 **.env** minimum required:
 ```env
-ANTHROPIC_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here   # required for Anthropic mode
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
 USER_EMAIL=your_email@example.com
+
+# LLM Provider — choose one:
+LLM_PROVIDER=anthropic             # default — uses Claude Sonnet 4.6
+# LLM_PROVIDER=ollama              # local — uses Ollama (no API key needed)
+# OLLAMA_MODEL=llama3:latest       # default Ollama model
 
 # Optional — service API auth
 # BANKING_API_KEY=your-secret-key
@@ -43,6 +48,8 @@ USER_EMAIL=your_email@example.com
 # Optional — CORS for deployed frontend
 # BANKING_CORS_ORIGINS=https://yourapp.com
 ```
+
+> **LLM Configuration**: Set `LLM_PROVIDER=anthropic` (default) to use Claude Sonnet 4.6 via Anthropic API. Set `LLM_PROVIDER=ollama` to use a local Ollama model — useful when Anthropic credits are unavailable. Quality is higher with Claude.
 
 ### 2. Python dependencies
 
@@ -127,13 +134,14 @@ Research completes in **60–120 seconds** depending on company and network.
 
 | Tab | Content |
 |-----|---------|
-| **Executive Summary** | AI-generated brief, data freshness indicators, meeting checklist |
+| **Executive Summary** | Company snapshot, WF affinity signals, deal trigger alerts, news sentiment |
 | **Financial Metrics** | Income statement, balance sheet, cash flow — period over period |
 | **Industry Analysis** | NAICS sector, peer benchmarking, industry trends, SVG bar charts |
 | **News & Sentiment** | Classified news with severity, sentiment, stock price impact sparklines |
-| **Data Freshness** | Per-dimension temporal scores (fresh / recent / aged / stale) |
 | **Knowledge Graph** | Force-directed graph — click any node for detail panel |
-| **Officer Intelligence** | Executive profiles with risk flags, backgrounds, banking relevance |
+| **Officer Intelligence** | Executive profiles, risk flags, Board Interlock Map (WF officer overlap), Alumni Network |
+| **Pitch** | Incumbent Bank detection, product recommendations, warm entry points, relationship-based approach |
+| **Activity** | RM activity log (calls/emails/meetings) + prior WF deals history |
 
 ### 4. Export PDF
 Click **⬇ Export PDF** in the header. A formatted A4 intelligence brief downloads immediately — includes cover page, financials, peer comparison, industry, news, officer profiles, and products.
@@ -198,30 +206,39 @@ Claude/
 │   │   ├── api.py                    # FastAPI endpoints + API key auth
 │   │   ├── research_orchestrator.py  # LangGraph 9-node workflow
 │   │   ├── neo4j_db.py               # Neo4j CRUD + graph queries
+│   │   ├── llm_factory.py            # get_llm() — Anthropic or Ollama
 │   │   ├── report_generator.py       # reportlab PDF intelligence brief
 │   │   ├── temporal.py               # Data freshness scoring + decay curves
+│   │   ├── bank_officers.py          # WF officer registry + relationship matching
 │   │   └── agents/
 │   │       ├── web_scraper_agent.py  # Company website scraper
-│   │       ├── edgar_agent.py        # SEC EDGAR 10-K/10-Q + ticker normalisation
+│   │       ├── edgar_agent.py        # SEC EDGAR 10-K/10-Q + disk cache
 │   │       ├── news_agent.py         # DuckDuckGo news search
-│   │       ├── news_classifier.py    # Batch Claude sentiment classification
+│   │       ├── news_classifier.py    # Batch LLM sentiment classification
 │   │       ├── product_agent.py      # Product portfolio generation
-│   │       ├── industry_agent.py     # NAICS + peer discovery
+│   │       ├── industry_agent.py     # NAICS + peer discovery (ReAct + DDG)
 │   │       └── officer_agent.py      # Executive profiling + risk flags
 │   └── kg_frontend/                  # Next.js 16 frontend
-│       ├── app/banking/page.tsx      # Main dashboard (7 tabs + PDF button)
+│       ├── app/banking/page.tsx      # Main dashboard (8 tabs + PDF button)
+│       ├── app/rm/page.tsx           # RM Portfolio dashboard
 │       ├── lib/api.ts                # API client
 │       └── components/
-│           ├── InsightsOverview.tsx
-│           ├── FinancialMetrics.tsx
+│           ├── InsightsOverview.tsx  # Company snapshot
+│           ├── FinancialMetrics.tsx  # Self-fetching financial data
 │           ├── IndustryComparison.tsx
 │           ├── PeerComparison.tsx    # SVG bar charts — 6 metrics
+│           ├── CovenantWatch.tsx     # Financial ratio monitoring
+│           ├── TriggerAlerts.tsx     # Deal trigger alerts
+│           ├── OfficerResearch.tsx   # Officer cards + Board Interlock Map
+│           ├── WFCommonality.tsx     # WF affinity signals
+│           ├── ScoreTooltip.tsx      # Shared tooltip system
+│           ├── Recommendations.tsx   # Pitch + products
+│           ├── IncumbentBank.tsx     # Incumbent bank detection
+│           ├── MeetingBrief.tsx      # Pre-meeting modal
 │           ├── NewsAnalysis.tsx
-│           ├── DataFreshness.tsx
 │           ├── GraphVisualization.tsx
-│           ├── OfficerResearch.tsx   # Officer cards + manual search
 │           └── ResearchProgress.tsx
-├── sec-edgar-filings/                # Cached SEC filing downloads
+├── sec-edgar-filings/                # Cached SEC filing downloads (55+ tickers)
 └── tests/
     └── test_knowledge_graph.py
 ```
@@ -272,6 +289,11 @@ pip install reportlab
 tail -50 backend.log
 ```
 
+**LLM returns empty results / no triggers**
+- If using Anthropic: check API credits at console.anthropic.com
+- Switch to Ollama: set `LLM_PROVIDER=ollama` in `.env`, restart backend
+- Ensure Ollama is running: `ollama serve` and model pulled: `ollama pull llama3`
+
 **Research slow / stuck**
 - First-time EDGAR downloads: 30–60 s (then cached)
 - Officer research: +20–60 s (4 web searches per officer)
@@ -286,11 +308,11 @@ tail -50 backend.log
 | Frontend | Next.js 16, React 19, TypeScript, TailwindCSS |
 | Backend | FastAPI, Python 3.10+, uvicorn |
 | AI Orchestration | LangGraph + LangChain |
-| LLM | Claude Sonnet 4.6 (Anthropic) |
+| LLM | Claude Sonnet 4.6 (Anthropic) or Ollama (local) |
 | Graph DB | Neo4j 4.x (Docker) |
 | PDF Generation | reportlab 4.x |
 | Web Search | ddgs (DuckDuckGo) |
-| SEC Data | sec-edgar-downloader |
+| SEC Data | sec-edgar-downloader (disk-cached 55+ tickers) |
 | Stock Data | yfinance |
 | Graph Viz | react-force-graph-2d |
 

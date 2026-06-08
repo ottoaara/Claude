@@ -28,6 +28,8 @@ interface NewsAnalysis {
 interface Props {
   companyName: string;
   ticker?: string;
+  newsWindowDays?: number;
+  onWindowChange?: (w: { fin_window: number; news_window: number; prod_window: number }) => void;
 }
 
 function SentimentBadge({ sentiment }: { sentiment?: string }) {
@@ -72,13 +74,22 @@ function RiskLevel({ level }: { level?: string }) {
   );
 }
 
-export default function NewsAnalysis({ companyName, ticker }: Props) {
+export default function NewsAnalysis({ companyName, ticker, newsWindowDays = 90, onWindowChange }: Props) {
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [analysis, setAnalysis] = useState<NewsAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<"all" | "material" | "negative">("all");
+  const [sentimentFilter, setSentimentFilter] = useState<"all" | "material" | "negative">("all");
+  const [minSeverity, setMinSeverity] = useState<"all" | "medium" | "high">("all");
   const [stockData, setStockData] = useState<Record<string, any>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [windows, setWindows] = useState({ fin_window: 365, news_window: newsWindowDays, prod_window: 730 });
+
+  const handleWindowChange = (key: keyof typeof windows, value: number) => {
+    const updated = { ...windows, [key]: value };
+    setWindows(updated);
+    onWindowChange?.(updated);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -135,9 +146,26 @@ export default function NewsAnalysis({ companyName, ticker }: Props) {
     );
   }
 
+  const severityRank = { high: 3, medium: 2, low: 1 };
+  const minSeverityRank = minSeverity === "high" ? 3 : minSeverity === "medium" ? 2 : 1;
+
+  // Date cutoff — use internal windows.news_window, falling back to prop
+  const effectiveNewsWindow = windows.news_window;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - effectiveNewsWindow);
+
   const filtered = newsItems.filter((item) => {
-    if (filter === "material") return item.is_material;
-    if (filter === "negative") return item.sentiment === "negative";
+    // Date window filter
+    if (item.date) {
+      const articleDate = new Date(item.date);
+      if (!isNaN(articleDate.getTime()) && articleDate < cutoffDate) return false;
+    }
+    // Severity threshold filter
+    const rank = severityRank[(item.severity ?? "low") as keyof typeof severityRank] ?? 1;
+    if (rank < minSeverityRank) return false;
+    // Sentiment/material filter
+    if (sentimentFilter === "material") return item.is_material;
+    if (sentimentFilter === "negative") return item.sentiment === "negative";
     return true;
   });
 
@@ -152,10 +180,12 @@ export default function NewsAnalysis({ companyName, ticker }: Props) {
       {analysis && (
         <div className="bg-white rounded-lg p-6 border-2 border-gray-200 shadow-md">
           <div className="flex items-start justify-between mb-4">
-            <h3 className="text-xl font-bold text-[#D71E28] border-b-2 border-[#D71E28] pb-2 uppercase tracking-wide">
-              News & Sentiment Analysis
-            </h3>
-            <RiskLevel level={analysis.risk_level} />
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-bold text-[#D71E28] border-b-2 border-[#D71E28] pb-2 uppercase tracking-wide">
+                News & Sentiment Analysis
+              </h3>
+              <RiskLevel level={analysis.risk_level} />
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4 mb-6">
@@ -223,33 +253,140 @@ export default function NewsAnalysis({ companyName, ticker }: Props) {
 
       {/* News Feed */}
       <div className="bg-white rounded-lg p-6 border-2 border-gray-200 shadow-md">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-[#D71E28] border-b-2 border-[#D71E28] pb-2 uppercase tracking-wide">
-            News Feed
-          </h3>
-          {/* Filter Controls */}
-          <div className="flex gap-2">
-            {(["all", "material", "negative"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1 text-xs font-bold rounded uppercase tracking-wide border transition-colors ${
-                  filter === f
-                    ? "bg-[#D71E28] text-white border-[#D71E28]"
-                    : "bg-white text-[#666666] border-gray-300 hover:border-[#D71E28] hover:text-[#D71E28]"
-                }`}
-              >
-                {f === "all" ? `All (${newsItems.length})` : f === "material" ? `Material (${materialCount})` : `Negative (${negativeCount})`}
-              </button>
-            ))}
+        <div className="flex flex-col gap-3 mb-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-bold text-[#D71E28] border-b-2 border-[#D71E28] pb-2 uppercase tracking-wide">
+              News Feed
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-[#666666] font-semibold">
+                {filtered.length} of {newsItems.length} articles
+              </span>
+              {/* Settings gear */}
+              <div className="relative">
+                <button
+                  onClick={() => setSettingsOpen(o => !o)}
+                  title="Data freshness settings"
+                  className={`p-2 rounded-lg border-2 transition-colors text-sm font-bold ${
+                    settingsOpen
+                      ? "bg-[#D71E28] text-white border-[#D71E28]"
+                      : "bg-white text-[#666666] border-gray-300 hover:border-[#D71E28] hover:text-[#D71E28]"
+                  }`}
+                >
+                  Settings
+                </button>
+
+                {settingsOpen && (
+                  <div className="absolute right-0 top-10 z-20 bg-white border-2 border-gray-200 rounded-lg shadow-xl p-5 w-80">
+                    <p className="text-xs font-bold uppercase tracking-widest text-[#333333] mb-4 border-b pb-2">Data Freshness Windows</p>
+                    <div className="space-y-5">
+                      {([
+                        { label: "News window", key: "news_window" as const, min: 7,  max: 365,  step: 7,  unit: "d" },
+                        { label: "Financial window", key: "fin_window" as const,  min: 30, max: 730,  step: 30, unit: "d" },
+                        { label: "Products window", key: "prod_window" as const, min: 90, max: 1095, step: 30, unit: "d" },
+                      ]).map(({ label, key, min, max, step, unit }) => (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-[#555555]">{label}</span>
+                            <span className="text-xs font-black text-[#D71E28]">
+                              {windows[key] >= 365
+                                ? `${(windows[key] / 365).toFixed(windows[key] % 365 === 0 ? 0 : 1)}y`
+                                : `${windows[key]}${unit}`}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={min} max={max} step={step}
+                            value={windows[key]}
+                            onChange={e => handleWindowChange(key, Number(e.target.value))}
+                            className="w-full accent-[#D71E28]"
+                          />
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>{min}{unit}</span><span>{max >= 365 ? `${max/365}y` : `${max}${unit}`}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setSettingsOpen(false)}
+                      className="mt-4 w-full py-1.5 bg-[#D71E28] text-white text-xs font-bold rounded uppercase tracking-wide hover:bg-[#b01820]"
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Threshold controls row */}
+          <div className="flex flex-wrap items-center gap-4 bg-gray-50 border border-gray-200 rounded px-4 py-3">
+            {/* Time window indicator */}
+              <div className="flex items-center gap-2 text-xs text-[#666666]">
+                <span className="font-bold uppercase tracking-wide">Time window:</span>
+                <span className="font-black text-[#D71E28]">
+                  {effectiveNewsWindow >= 365
+                    ? `${(effectiveNewsWindow / 365).toFixed(effectiveNewsWindow % 365 === 0 ? 0 : 1)}y`
+                    : `${effectiveNewsWindow}d`}
+                </span>
+              </div>
+
+            <div className="h-4 border-l border-gray-300" />
+
+            {/* Min severity threshold */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[#666666]">Min severity:</span>
+              <div className="flex gap-1">
+                {(["all", "medium", "high"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setMinSeverity(s)}
+                    className={`px-2.5 py-1 text-xs font-bold rounded uppercase tracking-wide border transition-colors ${
+                      minSeverity === s
+                        ? s === "high" ? "bg-red-600 text-white border-red-600"
+                          : s === "medium" ? "bg-yellow-500 text-white border-yellow-500"
+                          : "bg-[#D71E28] text-white border-[#D71E28]"
+                        : "bg-white text-[#666666] border-gray-300 hover:border-gray-400"
+                    }`}
+                  >
+                    {s === "all" ? "All" : s === "medium" ? "Medium+" : "High only"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="h-4 border-l border-gray-300" />
+
+            {/* Sentiment/material filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[#666666]">Show:</span>
+              <div className="flex gap-1">
+                {(["all", "material", "negative"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setSentimentFilter(f)}
+                    className={`px-2.5 py-1 text-xs font-bold rounded uppercase tracking-wide border transition-colors ${
+                      sentimentFilter === f
+                        ? "bg-[#D71E28] text-white border-[#D71E28]"
+                        : "bg-white text-[#666666] border-gray-300 hover:border-gray-400"
+                    }`}
+                  >
+                    {f === "all" ? `All` : f === "material" ? `Material (${materialCount})` : `Negative (${negativeCount})`}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
         {filtered.length === 0 ? (
           <div className="text-center py-12 text-[#666666]">
-            <p className="text-lg font-semibold">No articles match this filter</p>
-            <button onClick={() => setFilter("all")} className="mt-2 text-sm text-[#D71E28] underline">
-              Show all articles
+            <p className="text-lg font-semibold">No articles match current thresholds</p>
+            <button
+              onClick={() => { setSentimentFilter("all"); setMinSeverity("all"); }}
+              className="mt-2 text-sm text-[#D71E28] underline"
+            >
+              Reset filters
             </button>
           </div>
         ) : (
@@ -321,7 +458,7 @@ export default function NewsAnalysis({ companyName, ticker }: Props) {
                           rel="noopener noreferrer"
                           className="text-xs text-[#D71E28] hover:underline font-semibold"
                         >
-                          Read More →
+                          Read More
                         </a>
                       )}
                     </div>

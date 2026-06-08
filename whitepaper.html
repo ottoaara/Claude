@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Context Fabric — Technical White Paper v2.0</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red:    #D71E28;
+    --gold:   #C8A951;
+    --dark:   #1A1A1A;
+    --mid:    #444444;
+    --light:  #666666;
+    --rule:   #E0E0E0;
+    --bg:     #FAFAF8;
+    --accent: #FFF8E7;
+  }
+
+  html { font-size: 16px; }
+
+  body {
+    font-family: 'Merriweather', Georgia, serif;
+    background: var(--bg);
+    color: var(--dark);
+    line-height: 1.8;
+  }
+
+  /* ── Cover ─────────────────────────────────────────────────────────── */
+  .cover {
+    background: var(--dark);
+    color: white;
+    padding: 80px 80px 70px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--red) 0%, var(--gold) 100%);
+  }
+  .cover-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 32px;
+  }
+  .cover h1 {
+    font-family: 'Inter', sans-serif;
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+  .cover h1 span { color: var(--gold); }
+  .cover-sub {
+    font-family: 'Merriweather', serif;
+    font-style: italic;
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.7);
+    max-width: 640px;
+    line-height: 1.6;
+    margin-bottom: 56px;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 48px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+  .cover-meta-item label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .cover-meta-item span {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.85);
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  .content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 72px 40px 100px;
+  }
+
+  /* ── TOC ─────────────────────────────────────────────────────────────── */
+  .toc {
+    background: white;
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--red);
+    padding: 32px 36px;
+    margin-bottom: 64px;
+    border-radius: 0 4px 4px 0;
+  }
+  .toc h2 {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 20px;
+  }
+  .toc ol {
+    list-style: none;
+    counter-reset: toc;
+  }
+  .toc ol li {
+    counter-increment: toc;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dotted var(--rule);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--mid);
+  }
+  .toc ol li::before {
+    content: counter(toc, decimal-leading-zero);
+    font-weight: 700;
+    color: var(--light);
+    font-size: 11px;
+    min-width: 24px;
+  }
+  .toc ol li a {
+    color: var(--mid);
+    text-decoration: none;
+  }
+  .toc ol li a:hover { color: var(--red); }
+
+  /* ── Abstract ───────────────────────────────────────────────────────── */
+  .abstract {
+    background: var(--accent);
+    border: 1px solid #E8D9A0;
+    padding: 32px 36px;
+    margin-bottom: 64px;
+    border-radius: 4px;
+  }
+  .abstract h2 {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #8B6914;
+    margin-bottom: 16px;
+  }
+  .abstract p {
+    font-size: 15px;
+    color: #5A4A20;
+    line-height: 1.85;
+  }
+
+  /* ── Sections ───────────────────────────────────────────────────────── */
+  section { margin-bottom: 64px; }
+
+  .section-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 8px;
+  }
+  h2.section-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--dark);
+    line-height: 1.2;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--rule);
+  }
+  h3 {
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--dark);
+    margin: 32px 0 12px;
+  }
+  p { margin-bottom: 16px; font-size: 15.5px; color: #2A2A2A; }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── Pull quote ─────────────────────────────────────────────────────── */
+  blockquote {
+    border-left: 4px solid var(--red);
+    padding: 20px 28px;
+    margin: 32px 0;
+    background: white;
+    font-style: italic;
+    font-size: 18px;
+    font-weight: 300;
+    color: var(--mid);
+    line-height: 1.7;
+  }
+  blockquote cite {
+    display: block;
+    margin-top: 12px;
+    font-style: normal;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--light);
+  }
+
+  /* ── Figures / tables ───────────────────────────────────────────────── */
+  .figure {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 28px 32px;
+    margin: 32px 0;
+  }
+  .figure-caption {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--light);
+    margin-bottom: 20px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    margin: 24px 0;
+  }
+  thead tr { background: var(--dark); color: white; }
+  thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    font-size: 12px;
+  }
+  tbody tr { border-bottom: 1px solid var(--rule); }
+  tbody tr:nth-child(even) { background: #F7F7F5; }
+  tbody td { padding: 10px 14px; color: var(--mid); vertical-align: top; }
+  tbody td:first-child { font-weight: 600; color: var(--dark); }
+
+  /* ── Code / formula ─────────────────────────────────────────────────── */
+  .formula {
+    background: #F5F5F0;
+    border: 1px solid #DDD;
+    border-radius: 4px;
+    padding: 20px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--dark);
+    margin: 24px 0;
+    line-height: 2;
+  }
+  .formula .comment { color: #999; }
+  .formula .value { color: var(--red); font-weight: 500; }
+
+  /* ── Call-out box ───────────────────────────────────────────────────── */
+  .callout {
+    background: #FFF3F3;
+    border: 1px solid #FFCCCC;
+    border-left: 4px solid var(--red);
+    padding: 20px 24px;
+    border-radius: 0 4px 4px 0;
+    margin: 28px 0;
+  }
+  .callout strong {
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 8px;
+  }
+  .callout p { font-size: 14px; color: #5A1A1A; margin: 0; }
+
+  /* ── List ───────────────────────────────────────────────────────────── */
+  ul.body-list, ol.body-list {
+    padding-left: 24px;
+    margin: 16px 0 24px;
+  }
+  ul.body-list li, ol.body-list li {
+    font-size: 15px;
+    color: #2A2A2A;
+    margin-bottom: 8px;
+    line-height: 1.7;
+  }
+
+  /* ── Score grid ─────────────────────────────────────────────────────── */
+  .score-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .score-card {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 18px 20px;
+  }
+  .score-card .name {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 4px;
+  }
+  .score-card .max {
+    font-family: 'Inter', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--red);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .score-card .max span { font-size: 13px; font-weight: 400; color: var(--light); }
+  .score-card .desc { font-size: 12px; color: var(--light); font-family: 'Inter', sans-serif; line-height: 1.5; }
+
+  /* ── Agent grid ─────────────────────────────────────────────────────── */
+  .agent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 24px 0;
+  }
+  .agent-card {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 16px 18px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .agent-num {
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--red);
+    line-height: 1;
+    min-width: 28px;
+  }
+  .agent-card h4 {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 4px;
+  }
+  .agent-card p {
+    font-size: 12px;
+    color: var(--light);
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* ── Decay table ─────────────────────────────────────────────────────── */
+  .decay-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+  }
+  .decay-bar .label { width: 160px; color: var(--dark); font-weight: 500; }
+  .decay-bar .bar-wrap { flex: 1; background: #EEE; height: 8px; border-radius: 4px; overflow: hidden; }
+  .decay-bar .bar { height: 100%; border-radius: 4px; }
+  .decay-bar .days { width: 64px; text-align: right; color: var(--light); }
+
+  /* ── Footer ─────────────────────────────────────────────────────────── */
+  .footer {
+    background: var(--dark);
+    color: rgba(255,255,255,0.4);
+    text-align: center;
+    padding: 32px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .footer span { color: var(--gold); }
+
+  /* ── Diagram containers ─────────────────────────────────────────────── */
+  .diagram-wrap {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 28px 32px;
+    margin: 32px 0;
+    overflow-x: auto;
+  }
+  .diagram-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--light);
+    margin-bottom: 24px;
+  }
+
+  /* ── Agent pipeline flow ─────────────────────────────────────────────── */
+  .pipeline-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .pipeline-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+  .pipeline-node {
+    flex: 1;
+    background: #F9F9F7;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 12px 14px;
+    position: relative;
+  }
+  .pipeline-node.claude-node {
+    border-color: var(--gold);
+    background: #FFFDF5;
+  }
+  .pipeline-node .pn-num {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--red);
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+  .pipeline-node .pn-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 4px;
+  }
+  .pipeline-node .pn-desc {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: var(--light);
+    line-height: 1.4;
+  }
+  .pipeline-node .pn-llm {
+    margin-top: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    color: #8B6914;
+    background: #FFF3CC;
+    border-radius: 3px;
+    padding: 2px 6px;
+    display: inline-block;
+  }
+  .pipeline-arrow {
+    width: 32px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #CCC;
+    font-size: 18px;
+  }
+  .pipeline-connector {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 4px 0;
+    color: #CCC;
+  }
+  .pipeline-row-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 0;
+  }
+  .pipeline-down-arrow {
+    text-align: center;
+    color: #CCC;
+    font-size: 20px;
+    margin: 4px 0;
+    grid-column: 1 / -1;
+  }
+
+  /* ── Architecture diagram ────────────────────────────────────────────── */
+  .arch-diagram {
+    font-family: 'Inter', sans-serif;
+  }
+  .arch-layer {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 4px;
+    position: relative;
+  }
+  .arch-layer-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 6px;
+  }
+  .arch-layer-content {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .arch-box {
+    background: rgba(255,255,255,0.7);
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1A1A1A;
+  }
+  .arch-box small {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    color: #666;
+    margin-top: 2px;
+  }
+  .arch-arrow-down {
+    text-align: center;
+    font-size: 18px;
+    color: #AAA;
+    margin: 2px 0;
+    line-height: 1;
+  }
+  .arch-arrow-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    color: #AAA;
+    letter-spacing: 1px;
+  }
+
+  /* ── Stack grid ─────────────────────────────────────────────────────── */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .stack-item {
+    background: white;
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--red);
+    border-radius: 0 0 6px 6px;
+    padding: 14px 16px;
+  }
+  .stack-item.gold-top { border-top-color: var(--gold); }
+  .stack-item.dark-top { border-top-color: var(--dark); }
+  .stack-item .si-layer {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--light);
+    margin-bottom: 6px;
+  }
+  .stack-item .si-tech {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 3px;
+  }
+  .stack-item .si-detail {
+    font-size: 11px;
+    color: var(--light);
+    line-height: 1.4;
+  }
+
+  /* ── Score component detail ──────────────────────────────────────────── */
+  .score-detail {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 28px 0;
+  }
+  .score-detail-header {
+    background: var(--dark);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .score-detail-header .comp-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    flex: 1;
+  }
+  .score-detail-header .comp-max {
+    font-family: 'Inter', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--gold);
+  }
+  .score-detail-header .comp-max span {
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.5);
+  }
+  .score-detail-body { padding: 20px; }
+  .score-detail-body p { font-size: 14px; margin-bottom: 16px; color: #2A2A2A; }
+  .score-detail-body .formula { margin: 0 0 16px; }
+  .flag-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+  }
+  .flag-row:last-child { border-bottom: none; }
+  .flag-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+  .flag-dot.red  { background: var(--red); }
+  .flag-dot.yellow { background: #F59E0B; }
+  .flag-dot.green { background: #16A34A; }
+  .flag-label { font-weight: 600; color: var(--dark); min-width: 180px; }
+  .flag-pts   { font-weight: 700; color: var(--red); min-width: 52px; }
+  .flag-note  { color: var(--light); font-size: 12px; line-height: 1.4; }
+
+  /* ── Grade table ─────────────────────────────────────────────────────── */
+  .grade-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: 'Inter', sans-serif;
+  }
+  .grade-row:last-child { border-bottom: none; }
+  .grade-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .grade-badge.A { background: #DCFCE7; color: #16A34A; }
+  .grade-badge.B { background: #DBEAFE; color: #1D4ED8; }
+  .grade-badge.C { background: #FEF3C7; color: #92400E; }
+  .grade-badge.D { background: #FFEDD5; color: #C2410C; }
+  .grade-badge.F { background: #F3F4F6; color: #6B7280; }
+  .grade-range { font-size: 14px; font-weight: 700; color: var(--dark); min-width: 80px; }
+  .grade-label { font-size: 13px; font-weight: 600; color: var(--mid); min-width: 160px; }
+  .grade-action { font-size: 12px; color: var(--light); line-height: 1.4; }
+
+  /* ── Worked example ──────────────────────────────────────────────────── */
+  .example-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+  }
+  .example-bar .eb-label { width: 160px; color: var(--dark); font-weight: 600; }
+  .example-bar .eb-wrap  { flex: 1; background: #EEE; height: 10px; border-radius: 5px; overflow: hidden; }
+  .example-bar .eb-fill  { height: 100%; border-radius: 5px; background: var(--red); }
+  .example-bar .eb-pts   { width: 72px; text-align: right; font-weight: 700; color: var(--dark); }
+  .example-bar .eb-max   { color: var(--light); font-weight: 400; }
+
+  @media print {
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════ COVER ══════════════════════════════════════ -->
+<div class="cover">
+  <p class="cover-label">Technical White Paper &nbsp;·&nbsp; Commercial Banking Intelligence</p>
+  <h1>Context <span>Fabric</span></h1>
+  <p class="cover-sub">A graph-native, AI-augmented intelligence platform for commercial banking relationship managers — from raw data to ranked pitch opportunity in under five minutes.</p>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><label>Version</label><span>1.0</span></div>
+    <div class="cover-meta-item"><label>Date</label><span>June 2026</span></div>
+    <div class="cover-meta-item"><label>Classification</label><span>Internal / Prototype</span></div>
+    <div class="cover-meta-item"><label>Platform</label><span>FastAPI · Next.js · Neo4j · Claude Sonnet 4.6</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ BODY ═══════════════════════════════════════ -->
+<div class="content">
+
+  <!-- TOC -->
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#abstract">Abstract</a></li>
+      <li><a href="#problem">The Problem: Intelligence Failure in Commercial Banking</a></li>
+      <li><a href="#approach">Design Approach: Graph-Native Intelligence</a></li>
+      <li><a href="#pipeline">The Research Pipeline: Nine Agents, One Pass</a></li>
+      <li><a href="#temporal">Temporal Intelligence: When Data Expires</a></li>
+      <li><a href="#relationship">Relationship Intelligence: The Graph Advantage</a></li>
+      <li><a href="#rm-tools">RM Workflow Layer: Eight On-Demand Features</a></li>
+      <li><a href="#score">The Pitch Opportunity Score</a></li>
+      <li><a href="#architecture">Technical Architecture</a></li>
+      <li><a href="#implications">Implications and Future Directions</a></li>
+      <li><a href="#conclusion">Conclusion</a></li>
+    </ol>
+  </nav>
+
+  <!-- ABSTRACT -->
+  <div class="abstract" id="abstract">
+    <h2>Abstract</h2>
+    <p>
+      Context Fabric is a prototype pre-meeting intelligence platform designed for commercial banking relationship managers. It ingests publicly available data from SEC EDGAR filings, news sources, company websites, and professional networks, processes it through a LangGraph-orchestrated pipeline of nine specialised AI agents, stores the results in a Neo4j knowledge graph, and surfaces the output through an eight-tab research dashboard and a set of on-demand AI tools. A novel temporal weighting system decays the relevance of stored facts over configurable time windows, ensuring that meeting briefs reflect current reality rather than historical snapshots. A deterministic Pitch Opportunity Score (0–100) aggregates five temporal signals — debt timing, covenant stress, deal triggers, relationship warmth, and contact recency — into a single ranked call list that tells a relationship manager who to call this week, not just what to say when they get there.
+    </p>
+  </div>
+
+  <!-- ── SECTION 1 ─────────────────────────────────────────────────── -->
+  <section id="problem">
+    <p class="section-label">Section 1</p>
+    <h2 class="section-title">The Problem: Intelligence Failure in Commercial Banking</h2>
+
+    <p>
+      A commercial relationship manager (RM) typically carries between 40 and 80 client relationships. Before every significant meeting, a competent RM is expected to know the client's recent financial trajectory, material news events, key decision-makers, competitive threats, and the relevant Wells Fargo products they do not yet hold. In practice, this intelligence is gathered manually — a process that takes 30 to 60 minutes per client across SEC filings, Google searches, LinkedIn profiles, and internal CRM notes that are rarely current.
+    </p>
+
+    <blockquote>
+      "The average commercial banker spends more time preparing for a meeting than being in one — and still walks in underinformed."
+      <cite>— Internal observation, Context Fabric inception memo</cite>
+    </blockquote>
+
+    <p>
+      The consequences are measurable. Missed cross-sell signals, stale financial data forming the basis of credit conversations, relationship warm entry points left unexploited because no one checked whether an officer shared a board seat with a bank contact. Most critically: the decision of <em>which</em> client to call in the first place is made on intuition rather than evidence. A book of 60 relationships contains, at any given moment, perhaps 8 or 10 genuine time-sensitive opportunities. Without a ranked signal, all 60 are treated as equally urgent — which means none are.
+    </p>
+
+    <p>
+      The five failure modes this system addresses:
+    </p>
+
+    <ul class="body-list">
+      <li><strong>Time:</strong> Manual research averages 45 minutes per meeting. RMs hold 3–5 client meetings per week. The preparation burden crowds out relationship-building time.</li>
+      <li><strong>Fragmentation:</strong> No single tool surfaces SEC filings, news sentiment, officer profiles, and incumbent banking relationships in one view.</li>
+      <li><strong>Staleness:</strong> Information gathered 18 months ago has no expiry date in most CRM systems. A board director who departed, a credit facility that matured, an earnings miss — all remain as confident facts until manually updated.</li>
+      <li><strong>Shallowness:</strong> Raw data is not intelligence. An RM reading a 10-K needs synthesis: what do the ratios mean for the relationship, what covenant stress is visible, what product does this signal?</li>
+      <li><strong>Prioritisation:</strong> There is no systematic answer to "who should I call this week?" — the highest-urgency relationships surface by accident rather than design.</li>
+    </ul>
+  </section>
+
+  <!-- ── SECTION 2 ─────────────────────────────────────────────────── -->
+  <section id="approach">
+    <p class="section-label">Section 2</p>
+    <h2 class="section-title">Design Approach: Graph-Native Intelligence</h2>
+
+    <p>
+      Context Fabric is built around a central insight: client intelligence is fundamentally relational, not tabular. A company is not a row in a spreadsheet. It is a node in a web of officers, filings, peers, industries, news events, banking products, and professional relationships — many of which are only meaningful when their connections are visible.
+    </p>
+
+    <p>
+      Neo4j was chosen as the persistence layer because it makes those connections first-class. A query like "find all companies where an officer shares a board seat with a Wells Fargo executive and the company has a credit facility maturing within 12 months" is a natural graph traversal. In a relational database it requires three joins and two subqueries. In Neo4j it is a single Cypher pattern match.
+    </p>
+
+    <div class="figure">
+      <p class="figure-caption">Figure 1 — Neo4j node types (9)</p>
+      <table>
+        <thead><tr><th>Node</th><th>Key properties</th><th>Primary relationships</th></tr></thead>
+        <tbody>
+          <tr><td>Company</td><td>name, ticker, industry, description</td><td>root node</td></tr>
+          <tr><td>Financial</td><td>revenue, net_income, long_term_debt, filing_type, period</td><td>HAS_FILING</td></tr>
+          <tr><td>News</td><td>title, date, sentiment, is_material, event_types</td><td>MENTIONED_IN</td></tr>
+          <tr><td>Product</td><td>name, category, description</td><td>OFFERS</td></tr>
+          <tr><td>Industry</td><td>naics_code, sector_name, trend_summary</td><td>BELONGS_TO</td></tr>
+          <tr><td>PeerCompany</td><td>name, revenue, relationship type</td><td>HAS_PEER, PEER_OF</td></tr>
+          <tr><td>Officer</td><td>name, role, education, board_memberships, risk_flags, researched_at</td><td>HAS_OFFICER</td></tr>
+          <tr><td>Activity</td><td>type, date, contact, notes, next_action</td><td>HAS_ACTIVITY</td></tr>
+          <tr><td>Deal</td><td>product, category, status, amount, start_date</td><td>HAS_DEAL</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The platform is deliberately structured in two layers. The <strong>research layer</strong> operates asynchronously: an RM triggers a research job, the pipeline runs in the background, and the graph is populated for all future queries. The <strong>intelligence layer</strong> operates synchronously and on-demand: eight feature endpoints read from the already-populated graph and apply AI synthesis or deterministic computation to answer specific RM questions at the moment they are needed.
+    </p>
+
+    <p>
+      This separation matters. It means the AI-heavy research work (which takes 2–4 minutes per company) is done once, while the lightweight intelligence features (Meeting Brief, Trigger Alerts, Covenant Watch) respond in under two seconds because they read from stored facts rather than running live web searches.
+    </p>
+  </section>
+
+  <!-- ── SECTION 3 ─────────────────────────────────────────────────── -->
+  <section id="pipeline">
+    <p class="section-label">Section 3</p>
+    <h2 class="section-title">The Research Pipeline: Nine Agents, One Pass</h2>
+
+    <p>
+      The research pipeline is orchestrated by LangGraph — a stateful, directed graph execution framework built on LangChain. A single research job moves through nine sequential nodes, each corresponding to a specialised agent. The pipeline emits a progress event after every node, which the frontend consumes via polling to render a live progress indicator.
+    </p>
+
+    <div class="agent-grid">
+      <div class="agent-card"><div class="agent-num">01</div><div><h4>WebScraperAgent</h4><p>Fetches and parses the company's own website. Extracts description, sector, employees, headquarters, business model. Uses BeautifulSoup + Claude for HTML-to-structure conversion.</p></div></div>
+      <div class="agent-card"><div class="agent-num">02</div><div><h4>EdgarAgent</h4><p>Downloads the two most recent 10-K and 10-Q filings from SEC EDGAR. Extracts structured financials: revenue, net income, operating income, long-term debt, cash flow, interest expense.</p></div></div>
+      <div class="agent-card"><div class="agent-num">03</div><div><h4>NewsAgent</h4><p>Queries DuckDuckGo for recent news. Runs Claude sentiment classification on each article: positive/negative/neutral, materiality flag, event type tags (M&A, earnings, leadership change, regulatory).</p></div></div>
+      <div class="agent-card"><div class="agent-num">04</div><div><h4>ProductAgent</h4><p>Generates a structured list of the company's commercial products and services, used downstream to identify cross-sell surface area and product overlaps.</p></div></div>
+      <div class="agent-card"><div class="agent-num">05</div><div><h4>IndustryAgent</h4><p>Identifies the company's NAICS sector and discovers 3–5 EDGAR-sourced peers. Populates the Industry Analysis and Peer Benchmarking tabs.</p></div></div>
+      <div class="agent-card"><div class="agent-num">06</div><div><h4>OfficerAgent</h4><p>The most complex agent. Discovers C-suite and board members via DuckDuckGo, company website, SEC DEF 14A proxy, and Wikipedia. Builds deep professional profiles including education, prior roles, board seats, and risk flags. <em>Always uses Claude Sonnet 4.6 — bypasses the LLM_PROVIDER environment variable because structured JSON extraction at this complexity level is unreliable with local models.</em></p></div></div>
+      <div class="agent-card"><div class="agent-num">07</div><div><h4>RecommendationsAgent</h4><p>Synthesises all prior research into a structured WF product recommendation: identified needs, suggested products, sales approach, risk considerations, and peer benchmarking context.</p></div></div>
+      <div class="agent-card"><div class="agent-num">08</div><div><h4>RelationshipMapAgent</h4><p>Cross-references every discovered officer against a static registry of known Wells Fargo executives and board members to surface board interlocks and shared alumni ties.</p></div></div>
+      <div class="agent-card"><div class="agent-num">09</div><div><h4>TemporalDimension</h4><p>Scores all stored facts for recency, applies decay curves, and prunes items below the relevance threshold. Sets freshness metadata used by the Data Freshness tab and the Pitch Opportunity Score.</p></div></div>
+    </div>
+
+    <p>
+      The pipeline uses a shared <code>ResearchState</code> dictionary that accumulates facts at each node. Each agent reads from upstream results (e.g., the OfficerAgent uses the ticker discovered by the WebScraper to improve SEC DEF 14A search precision) and writes its output back to state. At the end of the pipeline, the full state is persisted to Neo4j in a single write pass.
+    </p>
+
+    <div class="callout">
+      <strong>LLM routing policy</strong>
+      <p>General agents use the <code>LLM_PROVIDER</code> environment variable, which can be set to <code>ollama</code> (local llama3) for cost efficiency. The OfficerAgent always routes to Claude Sonnet 4.6 regardless of this setting. Local models consistently failed to produce structured JSON at the depth required for multi-officer profiles with nested board memberships, education histories, and risk flag arrays.</p>
+    </div>
+  </section>
+
+  <!-- ── SECTION 4 ─────────────────────────────────────────────────── -->
+  <section id="temporal">
+    <p class="section-label">Section 4</p>
+    <h2 class="section-title">Temporal Intelligence: When Data Expires</h2>
+
+    <p>
+      The most overlooked problem in enterprise data systems is not missing data — it is stale data that appears current. A commercial banker relying on a 14-month-old officer profile that still lists a departed CFO is not uninformed; they are confidently wrong, which is worse.
+    </p>
+
+    <p>
+      Context Fabric applies differentiated decay curves to every stored fact based on the volatility characteristics of that data type. The core insight is that different facts age at different rates: a news article about a contract win is largely irrelevant after 90 days; a board membership may be valid for 5 years. A single universal TTL would either discard too much (fast window) or keep too much (slow window).
+    </p>
+
+    <div class="figure">
+      <p class="figure-caption">Figure 2 — Relevance windows and decay rates by data type</p>
+      <div style="margin-bottom:8px;">
+        <div class="decay-bar"><span class="label">News</span><div class="bar-wrap"><div class="bar" style="width:23%;background:#D71E28;"></div></div><span class="days">90 days</span></div>
+        <div class="decay-bar"><span class="label">Officer Profiles</span><div class="bar-wrap"><div class="bar" style="width:30%;background:#E85020;"></div></div><span class="days">120 days</span></div>
+        <div class="decay-bar"><span class="label">Quarterly Financials</span><div class="bar-wrap"><div class="bar" style="width:30%;background:#E85020;"></div></div><span class="days">120 days</span></div>
+        <div class="decay-bar"><span class="label">Board Interlock</span><div class="bar-wrap"><div class="bar" style="width:45%;background:#C8A951;"></div></div><span class="days">180 days</span></div>
+        <div class="decay-bar"><span class="label">Industry Trends</span><div class="bar-wrap"><div class="bar" style="width:45%;background:#C8A951;"></div></div><span class="days">180 days</span></div>
+        <div class="decay-bar"><span class="label">Annual Financials</span><div class="bar-wrap"><div class="bar" style="width:90%;background:#666;"></div></div><span class="days">365 days</span></div>
+        <div class="decay-bar"><span class="label">Incumbent Bank</span><div class="bar-wrap"><div class="bar" style="width:90%;background:#666;"></div></div><span class="days">365 days</span></div>
+        <div class="decay-bar"><span class="label">Company Info</span><div class="bar-wrap"><div class="bar" style="width:90%;background:#666;"></div></div><span class="days">365 days</span></div>
+        <div class="decay-bar"><span class="label">Products</span><div class="bar-wrap"><div class="bar" style="width:100%;background:#444;"></div></div><span class="days">730 days</span></div>
+      </div>
+    </div>
+
+    <p>
+      The scoring algorithm operates in two stages. Within the relevance window, recency decays linearly from 1.0 (brand new) to 0.3 (at the window boundary). Beyond the window, decay becomes exponential, ensuring that sufficiently old data approaches zero rather than plateauing at a spuriously non-zero score. Content relevance — severity flags, filing types, negative sentiment — is layered in at 40% weight, with recency carrying the remaining 60%.
+    </p>
+
+    <div class="formula">
+      <span class="comment">// Within window — linear decay</span><br>
+      score = 1.0 − (days_old / window) × 0.7 <span class="comment">  → 1.0 at day 0, 0.3 at boundary</span><br><br>
+      <span class="comment">// Beyond window — exponential decay</span><br>
+      score = 0.3 × (1 − decay_rate) ^ extra_days<br><br>
+      <span class="comment">// Combined</span><br>
+      final = <span class="value">recency × 0.60</span> + <span class="value">content × 0.40</span>
+    </div>
+
+    <h3>Four Dimensions with New Temporal Weighting</h3>
+
+    <p>
+      During development, four dimensions were identified as requiring temporal weighting that was not initially present in the system:
+    </p>
+
+    <ul class="body-list">
+      <li><strong>Officer Profiles (120-day window):</strong> The <code>researched_at</code> timestamp on each stored officer profile is used to compute a freshness score. Profiles older than 120 days are flagged <code>needs_refresh: true</code>. The Relationship Map endpoint annotates every board/alumni connection with this freshness metadata and surfaces a top-level <code>has_stale_profiles</code> flag.</li>
+      <li><strong>Board Interlock / Alumni Connections (180-day window):</strong> Board seats are volatile. A director recorded as serving two years ago may have since resigned. Connections are down-weighted according to the age of the underlying officer profile, preventing stale relationship intelligence from inflating the Pitch Opportunity Score.</li>
+      <li><strong>Incumbent Bank Detection (365-day window):</strong> Credit agreements have maturity dates. The <code>/incumbent-bank</code> endpoint now returns a <code>maturity_status</code> field computed from the extracted maturity year: <code>past_due</code>, <code>maturing_this_year</code>, <code>within_12_months</code>, <code>within_24_months</code>, or <code>current</code>. A past-due maturity also applies a −0.35 penalty to the confidence reliability score, since a facility that should have matured likely has already been refinanced with another institution.</li>
+      <li><strong>Contact Recency (activity log):</strong> The <code>contact_urgency_boost()</code> method reads the activity log and computes a boost multiplier based on days since last contact. A gap of 90–180 days escalates medium-urgency triggers to high. Beyond 180 days, all triggers are escalated. This is applied at the <code>/triggers</code> endpoint and surfaced in the response so the RM understands why urgency ratings were elevated.</li>
+    </ul>
+  </section>
+
+  <!-- ── SECTION 5 ─────────────────────────────────────────────────── -->
+  <section id="relationship">
+    <p class="section-label">Section 5</p>
+    <h2 class="section-title">Relationship Intelligence: The Graph Advantage</h2>
+
+    <p>
+      Commercial banking deals are won in the relationship layer. A cold outreach to a CFO is a much harder conversation than one opened with: "I noticed you and our Managing Director, Sarah Chen, both serve on the board of the Regional Arts Foundation — she asked me to reach out." That single sentence shifts the conversation from vendor pitch to peer introduction.
+    </p>
+
+    <p>
+      The Relationship Intelligence layer cross-references every officer profile discovered for a client company against a registry of known Wells Fargo executives and board members. Two types of connections are surfaced:
+    </p>
+
+    <ul class="body-list">
+      <li><strong>Board Interlocks:</strong> Cases where a client company's officer and a WF officer serve together on an external board. These are strong, verifiable warm entry points.</li>
+      <li><strong>Alumni Networks:</strong> Cases where a client company's officer and a WF officer share an educational institution. Weaker than a board interlock but still a credible conversation opener, particularly for MBA programs with active alumni cultures.</li>
+    </ul>
+
+    <p>
+      Connections are ranked by the freshness of the underlying officer profile. A board interlock discovered in a research pass from 8 months ago carries a <code>needs_refresh</code> flag; the RM is warned that the connection should be verified before the meeting. A fresh profile (researched in the last 60 days) is shown with full confidence.
+    </p>
+
+    <p>
+      The graph structure makes this query efficient at scale. As the number of researched companies grows, the bank builds an increasingly rich web of relationship paths. A future query — "which of my 60 companies have at least one fresh board connection with a WF officer?" — is a single Neo4j traversal that takes milliseconds.
+    </p>
+  </section>
+
+  <!-- ── SECTION 6 ─────────────────────────────────────────────────── -->
+  <section id="rm-tools">
+    <p class="section-label">Section 6</p>
+    <h2 class="section-title">RM Workflow Layer: Eight On-Demand Features</h2>
+
+    <p>
+      The eight-tab research dashboard gives an RM comprehensive per-company intelligence. The on-demand AI features are the layer that turns that intelligence into action. Each feature is triggered by a specific RM need and returns a structured, actionable result.
+    </p>
+
+    <div class="figure">
+      <p class="figure-caption">Figure 3 — On-demand feature inventory</p>
+      <table>
+        <thead><tr><th>Feature</th><th>Endpoint</th><th>LLM</th><th>Primary signal</th></tr></thead>
+        <tbody>
+          <tr><td>Deal Trigger Alerts</td><td>/triggers</td><td>Claude</td><td>News + financials + contact gap → 0–6 ranked triggers</td></tr>
+          <tr><td>Covenant Watch</td><td>/covenant-watch</td><td>None (deterministic)</td><td>EDGAR ratios vs standard thresholds (D/EBITDA, coverage, ROA)</td></tr>
+          <tr><td>Incumbent Bank Detection</td><td>/incumbent-bank</td><td>Claude</td><td>DDG + SEC credit agreement search → primary lender, facility, maturity</td></tr>
+          <tr><td>Meeting Brief</td><td>/meeting-brief</td><td>Claude</td><td>Full context synthesis → 9-field structured brief + pre-call email draft</td></tr>
+          <tr><td>Relationship Intelligence</td><td>/relationship-map</td><td>None (graph query)</td><td>Officer ↔ WF officer board/alumni cross-reference</td></tr>
+          <tr><td>Activity Log</td><td>/activity (GET/POST/DELETE)</td><td>None</td><td>RM-entered call/email/meeting log with contact recency tracking</td></tr>
+          <tr><td>Deals History</td><td>/deals (GET/POST/DELETE)</td><td>None</td><td>Existing WF products by status (active/pipeline/closed/lost)</td></tr>
+          <tr><td>Pitch Opportunity Score</td><td>/pitch-score</td><td>None (deterministic)</td><td>5-component temporal score (0–100) — see Section 8</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The Meeting Brief</h3>
+
+    <p>
+      The Meeting Brief is the highest-leverage single feature. It is generated on demand via a button in the dashboard header, always visible regardless of which tab the RM is on. The prompt assembles all available context — financials, news analysis, officer profiles, existing deals, board connections, activity log recency, and industry position — into a single Claude Sonnet 4.6 call that returns a nine-field structured object:
+    </p>
+
+    <ul class="body-list">
+      <li>Headline (one sentence framing why the meeting matters now)</li>
+      <li>Company snapshot (2–3 sentences on health and momentum)</li>
+      <li>Three things going well (with specific data points)</li>
+      <li>Three risks the banker should be aware of</li>
+      <li>The likely ask from the client in this meeting</li>
+      <li>Warm entry points (leading with board/alumni connections if present)</li>
+      <li>Five smart questions tailored to current events</li>
+      <li>Topics to avoid (regulatory exposure, sensitive personnel matters)</li>
+      <li>Pre-call email draft, ready to send</li>
+    </ul>
+
+    <p>
+      The brief can be personalised to a specific contact by providing name and role. The prompt instructs Claude to lead with relationship connections when they are present — warm entry points are surfaced as the primary conversation opener, not buried in an appendix.
+    </p>
+  </section>
+
+  <!-- ── SECTION 7 ─────────────────────────────────────────────────── -->
+  <section id="score">
+    <p class="section-label">Section 7</p>
+    <h2 class="section-title">The Pitch Opportunity Score</h2>
+
+    <p>
+      The Pitch Opportunity Score is the feature that answers the question an RM cannot currently answer without reading 40 company profiles: <strong>who should I call this week?</strong>
+    </p>
+
+    <p>
+      It is deliberately deterministic. No LLM call is made. The score reads from stored Neo4j data and temporal metadata already computed at research time. This means it runs in milliseconds, can be computed for every company in a portfolio simultaneously, and produces a stable, explainable result. An RM who disagrees with a score can trace exactly which component drove it.
+    </p>
+
+    <div class="score-grid">
+      <div class="score-card">
+        <div class="name">Timing</div>
+        <div class="max">25 <span>pts</span></div>
+        <div class="desc">Long-term debt magnitude × filing recency. Large debt + recent filing = active capital structure to compete on.</div>
+      </div>
+      <div class="score-card">
+        <div class="name">Covenant Stress</div>
+        <div class="max">20 <span>pts</span></div>
+        <div class="desc">EDGAR ratios vs thresholds. Interest coverage &lt;2.5×, net margin &lt;3%, ROA &lt;2% each contribute. Red flags score higher than yellow.</div>
+      </div>
+      <div class="score-card">
+        <div class="name">Deal Triggers</div>
+        <div class="max">24 <span>pts</span></div>
+        <div class="desc">News risk level + material event count + key concerns. Contact gap boost (1.15–1.30×) applied when the RM has been silent for 90+ days.</div>
+      </div>
+      <div class="score-card">
+        <div class="name">Relationship Warmth</div>
+        <div class="max">16 <span>pts</span></div>
+        <div class="desc">Fresh board interlocks score 4 pts each; aged connections score 2 pts; stale connections score 1 pt. Capped at 16.</div>
+      </div>
+      <div class="score-card" style="grid-column: 1 / -1;">
+        <div class="name">Contact Gap</div>
+        <div class="max">15 <span>pts</span></div>
+        <div class="desc">0 pts if contacted in the last 30 days. 3 pts at 30–60 days. 7 pts at 60–90 days. 11 pts at 90–180 days. 15 pts beyond 180 days or no contact on record.</div>
+      </div>
+    </div>
+
+    <div class="formula">
+      Total = Timing + Covenant + Triggers + Warmth + Gap<br><br>
+      Grade: &nbsp;<span class="value">A</span> ≥ 80 &nbsp;·&nbsp; <span class="value">B</span> 60–79 &nbsp;·&nbsp; <span class="value">C</span> 40–59 &nbsp;·&nbsp; <span class="value">D</span> 20–39 &nbsp;·&nbsp; <span class="value">F</span> &lt; 20
+    </div>
+
+    <h3>Score Transparency</h3>
+
+    <p>
+      An unexplained score would be worse than no score — an RM who does not trust the ranking will ignore it. The system surfaces score transparency at two levels:
+    </p>
+
+    <p>
+      On the Portfolio Dashboard, clicking a score badge expands an inline row showing all five component bars with labels and point totals. An RM can immediately see that a company scored 71 (B) because it has a large debt load (22/25 timing), medium covenant stress (12/20), but the RM called two weeks ago (0/15 contact gap) — the deal is real but the timing is not yet critical.
+    </p>
+
+    <p>
+      On the Pitch tab within the company research view, a full Score Card component renders at the top with grade, score, a grade-specific recommendation ("Strong opportunity — prioritise this week"), and an expandable explanation of what each component measures and why a high sub-score matters. A footer note explicitly states: "Score does not use AI — all signals come from stored research data."
+    </p>
+
+    <blockquote>
+      The most important thing the score does is not identify the highest-scoring company. It is eliminating the bottom 50 so the RM can focus on the top 10.
+    </blockquote>
+
+    <p>
+      The Portfolio Dashboard defaults to sorting by Opportunity Score descending. The moment an RM loads the page, their ranked call list for the week is visible without any further navigation.
+    </p>
+  </section>
+
+  <!-- ── SECTION 8 ─────────────────────────────────────────────────── -->
+  <section id="architecture">
+    <p class="section-label">Section 8</p>
+    <h2 class="section-title">Technical Architecture</h2>
+
+    <h3>Stack</h3>
+
+    <div class="figure">
+      <p class="figure-caption">Figure 4 — Technology stack</p>
+      <table>
+        <thead><tr><th>Layer</th><th>Technology</th><th>Version</th></tr></thead>
+        <tbody>
+          <tr><td>Frontend</td><td>Next.js / React / TypeScript / TailwindCSS</td><td>16 / 19</td></tr>
+          <tr><td>Backend API</td><td>FastAPI / Python / uvicorn</td><td>3.10+</td></tr>
+          <tr><td>Orchestration</td><td>LangGraph + LangChain</td><td>latest</td></tr>
+          <tr><td>Primary LLM</td><td>Claude Sonnet 4.6 (Anthropic)</td><td>claude-sonnet-4-6</td></tr>
+          <tr><td>Secondary LLM</td><td>Ollama llama3 (local)</td><td>llama3:latest</td></tr>
+          <tr><td>Graph Database</td><td>Neo4j (Docker)</td><td>4.x</td></tr>
+          <tr><td>SEC Data</td><td>sec-edgar-downloader</td><td>—</td></tr>
+          <tr><td>Web Search</td><td>ddgs (DuckDuckGo)</td><td>—</td></tr>
+          <tr><td>Stock Data</td><td>yfinance</td><td>—</td></tr>
+          <tr><td>PDF Generation</td><td>reportlab</td><td>4.x</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>API Surface</h3>
+    <p>
+      The platform exposes 26 REST endpoints. Research jobs are asynchronous — a POST to <code>/research/start</code> returns a <code>job_id</code> immediately; the RM polls <code>/research/status/{job_id}</code> while the pipeline runs. All intelligence endpoints are synchronous and fast (&lt;2s for deterministic features, 5–15s for Claude-powered synthesis). Two endpoints — <code>/report</code> (JSON) and <code>/report/pdf</code> (streaming PDF) — require an <code>X-API-Key</code> header for service-to-service authentication.
+    </p>
+
+    <h3>Data Flow</h3>
+    <p>
+      External data enters through three routes: SEC EDGAR (downloaded and cached locally in <code>sec-edgar-filings/</code>), DuckDuckGo (news, officer discovery, incumbent bank search), and company websites (scraped on-demand). No paid data subscriptions are required. All intelligence is derived from publicly available sources plus the RM's own activity logs.
+    </p>
+
+    <h3>Security Posture</h3>
+    <p>
+      API key enforcement is optional (governed by the <code>BANKING_API_KEY</code> environment variable) and applies only to the report export endpoints. Internal endpoints require no authentication in the prototype, consistent with a behind-firewall deployment model. CORS origins are configurable via <code>BANKING_CORS_ORIGINS</code>. No client data is transmitted to external services beyond the LLM API calls to Anthropic, which receive synthesised context rather than raw PII.
+    </p>
+  </section>
+
+  <!-- ── SECTION 9 ─────────────────────────────────────────────────── -->
+  <section id="implications">
+    <p class="section-label">Section 9</p>
+    <h2 class="section-title">Implications and Future Directions</h2>
+
+    <h3>The Temporal Model as a Core Asset</h3>
+    <p>
+      Most enterprise intelligence systems treat data currency as an operational concern: set a refresh schedule, run it nightly, move on. Context Fabric treats data currency as a <em>signal in itself</em>. The age of a board interlock, the maturity status of a credit facility, the duration of an RM contact gap — these are not data quality problems. They are intelligence. A six-month-old officer profile is not just less reliable than a recent one; it is specifically a signal that the relationship intelligence layer should be re-verified before using it in a pitch.
+    </p>
+    <p>
+      This reframing — from data freshness as a quality concern to temporal metadata as an input to decision-making — is the architectural contribution that distinguishes this system from a conventional research aggregator.
+    </p>
+
+    <h3>The Prioritisation Problem</h3>
+    <p>
+      The Pitch Opportunity Score addresses a largely ignored problem in commercial banking tooling: the prioritisation of RM time. CRM systems track what has happened. Research tools provide information about companies. Neither answers "who should I call tomorrow?" The score is a first attempt at a systematic answer, using only signals available from public data and the RM's own activity log.
+    </p>
+    <p>
+      Future iterations could extend the score with signals not currently captured: industry-level market cycle position (are competitors pulling back from this sector, creating a vacuum?), recent M&A activity in the peer set (a peer acquisition often signals the target company is evaluating strategic options), or CRM data on recent competitive losses in the sector (a lost deal in an adjacent relationship is a leading indicator of competitor momentum).
+    </p>
+
+    <h3>The Graph as a Long-Run Asset</h3>
+    <p>
+      The value of the Neo4j graph compounds over time. Each research pass adds nodes and edges. As the coverage of officer profiles grows, the probability of surfacing a useful board interlock for any new company increases. A bank that has researched 500 companies over 18 months has built a relationship intelligence map that no competitor can replicate quickly — not because the underlying data is proprietary, but because the investment in structured, connected storage of officer profiles and their relationships is cumulative.
+    </p>
+
+    <h3>Near-Term Enhancements</h3>
+    <ul class="body-list">
+      <li><strong>CRM integration:</strong> Writing discovered contacts and activity summaries back to Salesforce or Microsoft Dynamics would close the loop between intelligence and execution.</li>
+      <li><strong>Automated re-research triggers:</strong> When a company's news risk crosses from medium to high, or when an officer profile passes its 120-day window, automatically queue a partial re-research job for the affected dimensions.</li>
+      <li><strong>Score feedback loop:</strong> Allow RMs to rate the quality of scored opportunities. Over time, calibrate component weights using actual conversion data — which score components are most predictive of won mandates at this institution?</li>
+      <li><strong>Portfolio-level heat map scoring:</strong> Extend the Opportunity Score to the Industry Heat Map — surface which sectors in the portfolio have the highest aggregate opportunity concentration.</li>
+      <li><strong>Maturity calendar:</strong> A chronological view across the portfolio showing all credit facilities with known maturity dates, giving the RM a 12-month pipeline of natural conversation openers.</li>
+    </ul>
+  </section>
+
+  <!-- ── SECTION 10 ─────────────────────────────────────────────────── -->
+  <section id="conclusion">
+    <p class="section-label">Section 10</p>
+    <h2 class="section-title">Conclusion</h2>
+
+    <p>
+      Context Fabric demonstrates that the intelligence problem in commercial banking is tractable with current technology. The combination of a graph persistence layer, a multi-agent research pipeline, and a temporal weighting system produces something qualitatively different from a research aggregator: a living model of a client that degrades gracefully as facts age and recovers fully with each re-research pass.
+    </p>
+
+    <p>
+      The eight on-demand features — and particularly the Pitch Opportunity Score — are not features in the product management sense. They are answers to questions that RMs ask every day and currently have no systematic way to answer. Who has a credit facility maturing in the next 12 months? Which of my clients have I not spoken to in over 90 days and have high news risk? Where do I have warm entry points into a conversation? The graph already knows. The application surfaces it.
+    </p>
+
+    <p>
+      The most important design decision was making the score deterministic and explainable. An AI-generated "opportunity score" that cannot be traced to specific, understandable signals will not be trusted by experienced bankers, and untrusted scores are ignored. By grounding every point in a named, visible, traceable signal — and by showing the breakdown inline on the page where the RM encounters the score — the system invites interrogation rather than demanding deference.
+    </p>
+
+    <blockquote>
+      The goal is not to replace the relationship manager's judgment. It is to ensure that judgment is applied to the right relationships, at the right time, with the right information already in hand.
+    </blockquote>
+
+    <p>
+      Context Fabric is a prototype. The codebase is clean, the architecture is extensible, and the core thesis — that temporal graph intelligence can meaningfully improve RM prioritisation — is demonstrated at the feature level. The path to production requires hardening (authentication, multi-tenancy, CRM integration, compliance review of AI-generated content), but the intelligence model is sound and the foundation is in place.
+    </p>
+  </section>
+
+  <!-- API appendix -->
+  <section>
+    <p class="section-label">Appendix A</p>
+    <h2 class="section-title">API Endpoint Reference</h2>
+    <div class="formula" style="line-height:2.2;font-size:12px;">
+POST /research/start &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Start async research job<br>
+GET  /research/status/{job_id} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Poll progress<br>
+GET  /research/jobs &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; List all jobs<br>
+<br>
+GET  /companies &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; All companies in graph<br>
+GET  /company/{name}/graph &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Full graph data<br>
+GET  /company/{name}/freshness &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Temporal freshness scores<br>
+GET  /company/{name}/peer-comparison &nbsp;&nbsp;&nbsp; Target + peer financials<br>
+GET  /company/{name}/officers &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stored officer profiles<br>
+GET  /company/{name}/triggers &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Deal trigger analysis (Claude)<br>
+GET  /company/{name}/covenant-watch &nbsp;&nbsp;&nbsp;&nbsp; Financial ratio monitoring<br>
+GET  /company/{name}/incumbent-bank &nbsp;&nbsp;&nbsp;&nbsp; Incumbent bank detection<br>
+GET  /company/{name}/meeting-brief &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Pre-meeting synthesis brief<br>
+GET  /company/{name}/pitch-score &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Pitch Opportunity Score (0–100)<br>
+GET  /company/{name}/activity &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; RM activity log<br>
+POST /company/{name}/activity &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Log call / email / meeting<br>
+DEL  /activity/{id} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Remove activity entry<br>
+GET  /company/{name}/deals &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Prior WF products / deals<br>
+POST /company/{name}/deals &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Add deal record<br>
+DEL  /deal/{id} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Remove deal record<br>
+GET  /company/{name}/relationship-map &nbsp;&nbsp;&nbsp; Board interlock + alumni<br>
+GET  /rm/portfolio &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; All companies with RM stats + scores<br>
+GET  /rm/industry-heatmap &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Sector risk scores<br>
+GET  /company/{name}/report &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; JSON intelligence report [API key]<br>
+GET  /company/{name}/report/pdf &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PDF intelligence brief [API key]<br>
+POST /officer/search &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Research a named individual<br>
+GET  /health &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; System health check
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  Context Fabric &nbsp;·&nbsp; <span>Commercial Banking Intelligence Platform</span> &nbsp;·&nbsp; Internal Prototype &nbsp;·&nbsp; June 2026
+</div>
+
+</body>
+</html>

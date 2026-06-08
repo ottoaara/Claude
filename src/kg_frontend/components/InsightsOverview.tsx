@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api, APIError } from "../lib/api";
+import WFCommonality from "./WFCommonality";
+import { ScoreTooltip } from "./ScoreTooltip";
 
 interface Props {
   companyName: string;
@@ -115,6 +117,9 @@ export default function InsightsOverview({ companyName }: Props) {
           </div>
         )}
       </div>
+
+      {/* WF × Company Commonality */}
+      <WFCommonality companyName={companyName} graphData={graphData} />
 
       {/* Financial Health Snapshot */}
       {financials.length > 0 && (
@@ -306,6 +311,12 @@ function InfoCard({ label, value, link }: { label: string; value: string; link?:
   );
 }
 
+const SENTIMENT_EXPLAIN: Record<string, string> = {
+  positive: "The news pipeline scored this article as favorable — revenue beats, product launches, partnership announcements, or positive analyst coverage. Less likely to signal an immediate banking need.",
+  negative: "The news pipeline flagged adverse language: earnings misses, regulatory actions, litigation, leadership departures, layoffs, or debt concerns. Negative sentiment raises deal-trigger scores and urgency ratings.",
+  neutral:  "The article is informational or mixed — no strong positive or negative signal detected. Still worth reviewing for context.",
+};
+
 function SentimentBadge({ sentiment }: { sentiment: string }) {
   const colors = {
     positive: 'bg-green-100 text-green-700',
@@ -314,11 +325,19 @@ function SentimentBadge({ sentiment }: { sentiment: string }) {
   };
 
   const color = colors[sentiment as keyof typeof colors] || colors.neutral;
+  const explain = SENTIMENT_EXPLAIN[sentiment] ?? `Sentiment classification: ${sentiment}.`;
 
   return (
-    <span className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wide ${color}`}>
-      {sentiment}
-    </span>
+    <ScoreTooltip
+      title={`${sentiment.charAt(0).toUpperCase() + sentiment.slice(1)} Sentiment`}
+      body={explain}
+      width="w-80"
+      position="bottom"
+    >
+      <span className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wide cursor-help ${color}`}>
+        {sentiment}
+      </span>
+    </ScoreTooltip>
   );
 }
 

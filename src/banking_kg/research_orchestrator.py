@@ -1,5 +1,6 @@
 from typing import TypedDict, Dict, List, Annotated
 from langgraph.graph import StateGraph, END
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import operator
 from datetime import datetime
 
@@ -10,7 +11,13 @@ from .agents.product_agent import ProductAgent
 from .agents.industry_agent import IndustryAgent
 from .agents.officer_agent import OfficerAgent
 from .temporal import TemporalDimension
-from .neo4j_db import BankingKnowledgeGraph
+from .neo4j_db import (
+    BankingKnowledgeGraph,
+    FINANCIAL_CACHE_TTL_DAYS,
+    NAICS_CACHE_TTL_DAYS,
+    PEER_LIST_CACHE_TTL_DAYS,
+    COMPANY_INFO_CACHE_TTL_DAYS,
+)
 
 
 class ResearchState(TypedDict):
@@ -69,26 +76,20 @@ class BankingResearchOrchestrator:
         # Add nodes for each research dimension
         workflow.add_node("scrape_company_info", self._scrape_company_info)
         workflow.add_node("fetch_financials", self._fetch_financials)
-        workflow.add_node("search_news", self._search_news)
-        workflow.add_node("generate_products", self._generate_products)
         workflow.add_node("analyze_industry", self._analyze_industry)
         workflow.add_node("fetch_peer_financials", self._fetch_peer_financials)
-        workflow.add_node("fetch_officers", self._fetch_officers)
+        workflow.add_node("parallel_news_products_officers", self._parallel_news_products_officers)
         workflow.add_node("apply_temporal_scoring", self._apply_temporal_scoring)
         workflow.add_node("populate_graph", self._populate_graph)
         workflow.add_node("generate_summary", self._generate_summary)
 
-        # Define the flow - sequential execution to avoid state conflicts
+        # Define the flow
         workflow.set_entry_point("scrape_company_info")
-
-        # Sequential flow through all research steps
         workflow.add_edge("scrape_company_info", "fetch_financials")
-        workflow.add_edge("fetch_financials", "search_news")
-        workflow.add_edge("search_news", "generate_products")
-        workflow.add_edge("generate_products", "analyze_industry")
+        workflow.add_edge("fetch_financials", "analyze_industry")
         workflow.add_edge("analyze_industry", "fetch_peer_financials")
-        workflow.add_edge("fetch_peer_financials", "fetch_officers")
-        workflow.add_edge("fetch_officers", "apply_temporal_scoring")
+        workflow.add_edge("fetch_peer_financials", "parallel_news_products_officers")
+        workflow.add_edge("parallel_news_products_officers", "apply_temporal_scoring")
         workflow.add_edge("apply_temporal_scoring", "populate_graph")
         workflow.add_edge("populate_graph", "generate_summary")
         workflow.add_edge("generate_summary", END)
@@ -110,12 +111,25 @@ class BankingResearchOrchestrator:
         print(f"📊 Scraping company info for {state['company_name']}...")
 
         try:
+            # ── Company info cache (7-day TTL) ──────────────────────────
+            cached_info = self.kg.get_company_info_cache(state["company_name"], max_age_days=COMPANY_INFO_CACHE_TTL_DAYS)
+            if cached_info:
+                print(f"   ✅ Company info cache hit — skipping web scrape")
+                state["company_info"] = cached_info
+                state["completed_steps"].append("company_info")
+                self._emit_progress(state["completed_steps"])
+                return state
+            # ─────────────────────────────────────────────────────────────
+
             company_info = self.web_agent.get_company_overview(
                 state["company_name"],
                 state.get("website")
             )
             state["company_info"] = company_info
             state["completed_steps"].append("company_info")
+
+            # Persist for future runs
+            self.kg.save_company_info_cache(state["company_name"], company_info)
 
         except Exception as e:
             error_msg = f"Company scraping error: {str(e)}"
@@ -126,21 +140,89 @@ class BankingResearchOrchestrator:
         self._emit_progress(state["completed_steps"])
         return state
 
+    def _resolve_ticker(self, ticker: str, company_name: str) -> str:
+        """Validate ticker against EDGAR; fall back to yfinance lookup if invalid."""
+        import yfinance as yf
+
+        # Quick validation: try yfinance to confirm the ticker is real
+        if ticker:
+            try:
+                info = yf.Ticker(ticker).fast_info
+                # fast_info raises or returns empty if ticker is bogus
+                if getattr(info, 'last_price', None) or getattr(info, 'market_cap', None):
+                    return ticker  # ticker is valid
+            except Exception:
+                pass
+            print(f"   ⚠️  Ticker '{ticker}' appears invalid — re-resolving for '{company_name}'")
+
+        # Lookup by company name
+        try:
+            results = yf.Search(company_name, max_results=5)
+            quotes = results.quotes if hasattr(results, 'quotes') else []
+            # Prefer US exchange results (no dots in symbol)
+            for q in quotes:
+                sym = q.get('symbol', '').strip().upper()
+                if sym and '.' not in sym:
+                    print(f"   📈 yfinance resolved ticker: {sym}")
+                    return sym
+            if quotes:
+                sym = quotes[0].get('symbol', '').strip().upper()
+                print(f"   📈 yfinance resolved ticker (fallback): {sym}")
+                return sym
+        except Exception as e:
+            print(f"   ⚠️  yfinance lookup failed: {e}")
+
+        return ticker  # return whatever we had (may still fail)
+
     def _fetch_financials(self, state: ResearchState) -> ResearchState:
         """Node: Fetch financial data from Edgar"""
-        ticker = state.get('ticker', '').strip()
+        ticker = state.get('ticker', '').strip().upper()
+        company_name = state.get('company_name', '')
+
+        # Always validate/resolve — Ollama frequently returns wrong tickers
+        ticker = self._resolve_ticker(ticker, company_name)
+        state['ticker'] = ticker
 
         print(f"💰 Fetching financials for ticker: '{ticker}'")
-        print(f"   Company: {state.get('company_name')}")
+        print(f"   Company: {company_name}")
 
         if not ticker:
-            error_msg = "No ticker provided, skipping financial data"
+            error_msg = "Could not resolve a valid ticker, skipping financial data"
             print(f"⚠️  {error_msg}")
             state["errors"].append(error_msg)
             state["financial_data"] = {"error": "No ticker", "filings": []}
             return state
 
         try:
+            # ── EDGAR freshness check ────────────────────────────────
+            # Check if our cached financials are already up-to-date by pinging
+            # SEC's lightweight submissions JSON (no download, ~1KB response).
+            cached_filings = self.kg.get_financials_by_ticker(ticker, max_age_days=FINANCIAL_CACHE_TTL_DAYS)
+            if cached_filings:
+                latest = cached_filings[0]
+                latest_cached_period = latest.get("period") or latest.get("filing_period", "")
+
+                # If the cached record is missing key metrics it was written by the
+                # old schema (only 4 fields).  Treat as stale so we re-fetch and
+                # backfill all fields.
+                _KEY_METRICS = ("operating_income", "total_liabilities",
+                                "stockholders_equity", "operating_cash_flow")
+                schema_stale = all(latest.get(k) is None for k in _KEY_METRICS)
+
+                stale = schema_stale or self.edgar_agent.is_filing_stale(ticker, latest_cached_period, "10-K")
+                if not stale:
+                    print(f"   ✅ Financials are current (cached period: {latest_cached_period}) — skipping EDGAR download")
+                    # Reconstruct financial_data shape from cache
+                    state["financial_data"] = {"filings": cached_filings, "ticker": ticker, "source": "cache"}
+                    state["completed_steps"].append("financials")
+                    self._emit_progress(state["completed_steps"])
+                    return state
+                elif schema_stale:
+                    print(f"   ⚡ Cached record missing key metrics (old schema) — refreshing")
+                else:
+                    print(f"   ⚡ Newer EDGAR filing detected — refreshing (cached: {latest_cached_period})")
+            # ────────────────────────────────────────────────────────
+
             print(f"   Calling Edgar agent with ticker: {ticker}")
             financial_data = self.edgar_agent.get_company_financials(
                 ticker,
@@ -165,6 +247,54 @@ class BankingResearchOrchestrator:
             state["errors"].append(error_msg)
             state["financial_data"] = {"error": str(e), "filings": []}
 
+        self._emit_progress(state["completed_steps"])
+        return state
+
+    def _parallel_news_products_officers(self, state: ResearchState) -> ResearchState:
+        """Node: Run news, products, and officers in parallel using ThreadPoolExecutor."""
+        print(f"⚡ Running news / products / officers in parallel...")
+        company_name = state["company_name"]
+        industry    = state.get("company_info", {}).get("industry", "General")
+        description = state.get("company_info", {}).get("description", "")
+
+        def _news():
+            return self.news_agent.get_comprehensive_news_analysis(company_name)
+
+        def _products():
+            prods    = self.product_agent.generate_products(company_name, industry, description)
+            analysis = self.product_agent.analyze_product_portfolio(prods)
+            return {"products": prods, "portfolio_analysis": analysis}
+
+        def _officers():
+            return self.officer_agent.get_comprehensive_officer_intelligence(company_name)
+
+        tasks = {"news": _news, "products": _products, "officers": _officers}
+        results = {}
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(fn): key for key, fn in tasks.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    results[key] = future.result()
+                except Exception as e:
+                    print(f"   ⚠️  {key} failed: {e}")
+                    results[key] = None
+
+        state["news_data"]    = results.get("news")    or {"error": "failed", "news_items": []}
+        state["product_data"] = results.get("products") or {"error": "failed", "products": []}
+        state["officer_data"] = results.get("officers") or {"officers": [], "error": "failed"}
+
+        if "error" not in state["news_data"]:
+            state["completed_steps"].append("news")
+        if "error" not in state["product_data"]:
+            state["completed_steps"].append("products")
+        if "error" not in state["officer_data"]:
+            state["completed_steps"].append("officer_research")
+
+        print(f"   ✅ Parallel done — news={len(state['news_data'].get('news_items', []))} "
+              f"products={len(state['product_data'].get('products', []))} "
+              f"officers={len(state['officer_data'].get('officers', []))}")
         self._emit_progress(state["completed_steps"])
         return state
 
@@ -232,12 +362,53 @@ class BankingResearchOrchestrator:
             print(f"   Industry from company_info: {industry}")
             print(f"   Description available: {len(description)} chars")
 
-            industry_analysis = self.industry_agent.get_comprehensive_industry_analysis(
-                state["company_name"],
-                industry,
-                description,
-                financials
-            )
+            # ── NAICS + peer cache check ─────────────────────────────────
+            # If we already classified this company AND have a peer list, skip
+            # the entire 33s IndustryAgent call.
+            cached_naics = self.kg.get_naics_for_company(state["company_name"], max_age_days=NAICS_CACHE_TTL_DAYS)
+            cached_peers = self.kg.get_peers_for_company(state["company_name"], max_age_days=PEER_LIST_CACHE_TTL_DAYS)
+
+            if (cached_naics and cached_naics.get("naics_code") and cached_naics.get("naics_code") != "99"
+                    and cached_peers):
+                print(f"   ✅ Full industry cache hit ({cached_naics.get('naics_code')}, {len(cached_peers)} peers) — skipping IndustryAgent")
+                industry_analysis = {
+                    "company_name": state["company_name"],
+                    "naics_classification": {
+                        "naics_sector":      cached_naics.get("naics_sector", ""),
+                        "naics_sector_name": cached_naics.get("name", ""),
+                        "naics_code":        cached_naics.get("naics_code", ""),
+                        "industry_subsector": cached_naics.get("naics_subsector", ""),
+                        "confidence":        cached_naics.get("confidence", "high"),
+                        "_from_cache":       True,
+                    },
+                    "peer_companies": cached_peers,
+                    "industry_trends": {"growth_outlook": "unknown", "key_trends": []},
+                    "industry_comparison": None,
+                }
+            elif cached_naics and cached_naics.get("naics_code") and cached_naics.get("naics_code") != "99":
+                print(f"   ✅ NAICS cache hit ({cached_naics.get('naics_code')}) — running peer discovery only")
+                industry_analysis = self.industry_agent.get_comprehensive_industry_analysis(
+                    state["company_name"],
+                    cached_naics.get("name", industry),
+                    description,
+                    financials
+                )
+                industry_analysis["naics_classification"] = {
+                    "naics_sector":      cached_naics.get("naics_sector", ""),
+                    "naics_sector_name": cached_naics.get("name", ""),
+                    "naics_code":        cached_naics.get("naics_code", ""),
+                    "industry_subsector": cached_naics.get("naics_subsector", ""),
+                    "confidence":        cached_naics.get("confidence", "high"),
+                    "_from_cache":       True,
+                }
+            else:
+                industry_analysis = self.industry_agent.get_comprehensive_industry_analysis(
+                    state["company_name"],
+                    industry,
+                    description,
+                    financials
+                )
+            # ─────────────────────────────────────────────────────────────
 
             print(f"   ✅ Industry analysis completed:")
             print(f"      NAICS: {industry_analysis.get('naics_code', 'N/A')}")
@@ -259,7 +430,9 @@ class BankingResearchOrchestrator:
         return state
 
     def _fetch_peer_financials(self, state: ResearchState) -> ResearchState:
-        """Node: Fetch EDGAR 10-K / 10-Q data for each identified peer company"""
+        """Node: Fetch EDGAR 10-K data for each identified peer company.
+        Checks the Neo4j cache first — only hits EDGAR+Claude if cache is stale/missing.
+        """
         peers = state.get("industry_data", {}).get("peer_companies", [])
         tickered_peers = [p for p in peers if isinstance(p, dict) and p.get("ticker")]
 
@@ -270,45 +443,97 @@ class BankingResearchOrchestrator:
             self._emit_progress(state["completed_steps"])
             return state
 
-        print(f"📊 Fetching EDGAR filings for {len(tickered_peers)} peer(s)...")
+        print(f"📊 Fetching peer financials for {len(tickered_peers)} peer(s)...")
         peer_results = []
+        results_lock = __import__("threading").Lock()
 
-        for peer in tickered_peers:
+        import threading
+        import time as _t
+
+        # Semaphore limits concurrent live EDGAR calls to 2 — respects SEC rate limit
+        # while still running cache hits instantly in parallel.
+        edgar_semaphore = threading.Semaphore(2)
+        edgar_call_index = [0]  # mutable int for stagger delay tracking
+        index_lock = threading.Lock()
+
+        def _fetch_one(peer: dict):
             ticker = peer["ticker"].strip().upper()
-            # Normalise and skip foreign/invalid tickers before attempting download
+            name = peer.get("company_name", ticker)
+
+            # ── Cache check (no semaphore needed) ───────────────────────
+            cached = self.kg.get_financials_by_ticker(ticker, max_age_days=FINANCIAL_CACHE_TTL_DAYS)
+            if cached:
+                print(f"   ✅ Cache hit for {name} ({ticker}) — skipping EDGAR")
+                filing = cached[0]
+                row = {
+                    "peer_name": name,
+                    "ticker": ticker,
+                    "relationship": peer.get("relationship", "industry_peer"),
+                    "estimated_size": peer.get("estimated_size", "unknown"),
+                    "filing_type": filing.get("filing_type", "10-K"),
+                    "filing_period": filing.get("filing_period", filing.get("period", "")),
+                    "revenue": filing.get("revenue"),
+                    "net_income": filing.get("net_income"),
+                    "operating_income": filing.get("operating_income"),
+                    "total_assets": filing.get("total_assets"),
+                    "total_liabilities": filing.get("total_liabilities"),
+                    "stockholders_equity": filing.get("stockholders_equity"),
+                    "operating_cash_flow": filing.get("operating_cash_flow"),
+                }
+                with results_lock:
+                    peer_results.append(row)
+                return
+            # ─────────────────────────────────────────────────────────────
+
+            # Normalise and skip foreign/invalid tickers before downloading
             canonical = self.edgar_agent._normalise_ticker(ticker)
             if not canonical:
                 print(f"   ⏭️  Skipping {ticker}: foreign exchange ticker, no EDGAR CIK")
-                continue
-            name = peer.get("company_name", ticker)
-            print(f"   → {name} ({canonical})")
-            try:
-                raw = self.edgar_agent.get_company_financials(
-                    canonical, filing_types=["10-K", "10-Q"]
-                )
-                for filing in raw.get("filings", []):
-                    if "error" not in filing:
-                        peer_results.append({
-                            "peer_name": name,
-                            "ticker": ticker,
-                            "relationship": peer.get("relationship", "industry_peer"),
-                            "estimated_size": peer.get("estimated_size", "unknown"),
-                            "filing_type": filing.get("filing_type", "10-K"),
-                            "filing_period": filing.get("filing_period", ""),
-                            "revenue": filing.get("revenue"),
-                            "net_income": filing.get("net_income"),
-                            "operating_income": filing.get("operating_income"),
-                            "total_assets": filing.get("total_assets"),
-                            "total_liabilities": filing.get("total_liabilities"),
-                            "stockholders_equity": filing.get("stockholders_equity"),
-                            "operating_cash_flow": filing.get("operating_cash_flow"),
-                        })
-            except Exception as e:
-                print(f"   ⚠️  Failed for {ticker}: {e}")
+                return
+
+            # Stagger live EDGAR calls by 3s to stay under SEC rate limit
+            with edgar_semaphore:
+                with index_lock:
+                    idx = edgar_call_index[0]
+                    edgar_call_index[0] += 1
+                if idx > 0:
+                    print(f"   ⏳ Staggering EDGAR call for {name} by {idx * 3}s…")
+                    _t.sleep(idx * 3)
+
+                print(f"   → EDGAR fetch: {name} ({canonical})")
+                try:
+                    raw = self.edgar_agent.get_company_financials(
+                        canonical, filing_types=["10-K"], peer_mode=True
+                    )
+                    for filing in raw.get("filings", []):
+                        if "error" not in filing:
+                            row = {
+                                "peer_name": name,
+                                "ticker": ticker,
+                                "relationship": peer.get("relationship", "industry_peer"),
+                                "estimated_size": peer.get("estimated_size", "unknown"),
+                                "filing_type": filing.get("filing_type", "10-K"),
+                                "filing_period": filing.get("filing_period", ""),
+                                "revenue": filing.get("revenue"),
+                                "net_income": filing.get("net_income"),
+                                "operating_income": filing.get("operating_income"),
+                                "total_assets": filing.get("total_assets"),
+                                "total_liabilities": filing.get("total_liabilities"),
+                                "stockholders_equity": filing.get("stockholders_equity"),
+                                "operating_cash_flow": filing.get("operating_cash_flow"),
+                            }
+                            with results_lock:
+                                peer_results.append(row)
+                except Exception as e:
+                    print(f"   ⚠️  Failed for {ticker}: {e}")
+
+        with ThreadPoolExecutor(max_workers=len(tickered_peers)) as pool:
+            list(pool.map(_fetch_one, tickered_peers))
 
         state["peer_financial_data"] = peer_results
         state["completed_steps"].append("peer_financials")
-        print(f"   ✅ Peer filings fetched: {len(peer_results)}")
+        live_calls = edgar_call_index[0]
+        print(f"   ✅ Peer financials: {len(peer_results)} total ({live_calls} EDGAR calls, {len(peer_results)-live_calls} from cache)")
         self._emit_progress(state["completed_steps"])
         return state
 
@@ -392,10 +617,11 @@ class BankingResearchOrchestrator:
             # Add financial data
             for filing in state.get("financial_data", {}).get("filings", []):
                 if "error" not in filing:
+                    period = filing.get("filing_period") or filing.get("period") or "Unknown"
                     self.kg.add_financial_data(
                         state["company_name"],
                         filing.get("filing_type", "10-K"),
-                        filing.get("filing_period", "Unknown"),
+                        period,
                         filing
                     )
 
@@ -433,14 +659,20 @@ class BankingResearchOrchestrator:
                     revenue_impact=product.get("revenue_impact")
                 )
 
-            # Link to industry
+            # Link to industry — pass full NAICS classification for storage
             if naics.get("naics_code"):
                 self.kg.link_to_industry(
                     state["company_name"],
                     naics.get("naics_code", "99"),
                     naics.get("naics_sector_name", "Unknown"),
-                    naics.get("naics_sector_name", "Unknown")
+                    naics.get("naics_sector_name", "Unknown"),
+                    naics_classification=naics,
                 )
+
+            # Persist peer list so future runs can skip IndustryAgent entirely
+            peers = industry_data.get("peer_companies", [])
+            if peers and not naics.get("_from_cache"):
+                self.kg.save_peers_for_company(state["company_name"], peers)
 
             # Add peer relationships and financial data
             for peer in industry_data.get("peer_companies", []):
@@ -585,8 +817,9 @@ class BankingResearchOrchestrator:
         financials = state.get("financial_data", {}).get("filings", [])
         if financials and len(financials) > 0:
             latest = financials[0]
-            if "revenue" in latest:
-                summary_parts.append(f"Latest revenue: ${latest.get('revenue', 0):.1f}M")
+            revenue = latest.get("revenue")
+            if revenue is not None:
+                summary_parts.append(f"Latest revenue: ${float(revenue):.1f}M")
 
         # Add news summary
         news = state.get("news_data", {}).get("news_items", [])
@@ -602,6 +835,7 @@ class BankingResearchOrchestrator:
 
     def _format_financials(self, financial_data: Dict) -> list:
         """Format financial data for the frontend"""
+        import json as _json
         filings = financial_data.get("filings", [])
         formatted = []
 
@@ -609,19 +843,34 @@ class BankingResearchOrchestrator:
 
         for filing in filings:
             if "error" not in filing:
+                # Neo4j cache nodes store rich metrics in data_json; unpack first
+                # so all fields are available, then overlay with node-level values.
+                merged = dict(filing)
+                if filing.get("data_json"):
+                    try:
+                        inner = _json.loads(filing["data_json"])
+                        inner.pop("data_json", None)   # avoid infinite nesting
+                        merged = {**inner, **merged}   # node fields win
+                    except Exception:
+                        pass
+
+                period = merged.get("filing_period") or merged.get("period", "Unknown")
+                if not period or period == "Unknown":
+                    period = "Unknown"
+
                 formatted_filing = {
-                    "period": filing.get("filing_period", "Unknown"),
-                    "filing_type": filing.get("filing_type", "10-K"),
-                    "filing_date": filing.get("filing_date", ""),
-                    "revenue": filing.get("revenue"),
-                    "net_income": filing.get("net_income"),
-                    "operating_income": filing.get("operating_income"),
-                    "assets": filing.get("total_assets"),
-                    "liabilities": filing.get("total_liabilities"),
-                    "equity": filing.get("stockholders_equity"),
-                    "operating_cash_flow": filing.get("operating_cash_flow"),
-                    "investing_cash_flow": filing.get("investing_cash_flow"),
-                    "financing_cash_flow": filing.get("financing_cash_flow"),
+                    "period": period,
+                    "filing_type": merged.get("filing_type", "10-K"),
+                    "filing_date": merged.get("filing_date", ""),
+                    "revenue": merged.get("revenue"),
+                    "net_income": merged.get("net_income"),
+                    "operating_income": merged.get("operating_income"),
+                    "assets": merged.get("total_assets"),
+                    "liabilities": merged.get("total_liabilities"),
+                    "equity": merged.get("stockholders_equity"),
+                    "operating_cash_flow": merged.get("operating_cash_flow"),
+                    "investing_cash_flow": merged.get("investing_cash_flow"),
+                    "financing_cash_flow": merged.get("financing_cash_flow"),
                 }
                 print(f"DEBUG: Formatted filing - {formatted_filing['filing_type']} {formatted_filing['period']}, Revenue: {formatted_filing['revenue']}")
                 formatted.append(formatted_filing)

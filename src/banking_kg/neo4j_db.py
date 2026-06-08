@@ -3,6 +3,16 @@ from typing import Dict, List, Any, Optional
 import os
 from datetime import datetime
 
+# ── Universal cache TTL policy ───────────────────────────────────────────────
+# All financial data (main company and peers, 10-K and 10-Q) uses the same TTL.
+# Change this one constant to adjust the policy globally.
+FINANCIAL_CACHE_TTL_DAYS   = 30   # re-fetch if filing node is older than this
+NAICS_CACHE_TTL_DAYS       = 180  # NAICS classification changes rarely
+PEER_LIST_CACHE_TTL_DAYS   = 180  # Peer company list (not financials)
+COMPANY_INFO_CACHE_TTL_DAYS = 7   # Website-scraped company overview
+NEWS_CACHE_TTL_DAYS         = 7   # News is refreshed frequently
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _neo4j_to_python(value):
     """Recursively convert Neo4j temporal/spatial types to plain Python types."""
@@ -96,39 +106,170 @@ class BankingKnowledgeGraph:
                naics=naics, attributes=attributes)
             return result.single()["c"]
 
+    def get_company_info_cache(self, company_name: str, max_age_days: int = 7) -> dict:
+        """Return cached company_info if saved within max_age_days, else {}."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company {name: $name})
+                WHERE c.info_json IS NOT NULL
+                  AND (c.info_saved_at IS NULL
+                       OR duration.between(c.info_saved_at, datetime()).days <= $max_age)
+                RETURN c.info_json AS info_json
+            """, name=company_name, max_age=max_age_days)
+            row = result.single()
+            if row and row["info_json"]:
+                import json as _json
+                try:
+                    return _json.loads(row["info_json"])
+                except Exception:
+                    pass
+        return {}
+
+    def save_company_info_cache(self, company_name: str, info: dict) -> None:
+        """Persist company_info JSON on the Company node."""
+        import json as _json
+        with self.driver.session() as session:
+            session.run("""
+                MERGE (c:Company {name: $name})
+                SET c.info_json    = $info_json,
+                    c.info_saved_at = datetime()
+            """, name=company_name, info_json=_json.dumps(info))
+
+    def get_peers_for_company(self, company_name: str, max_age_days: int = 180) -> list:
+        """Return cached peer list stored on the Industry node or via IS_PEER_OF edges.
+        Returns [] if nothing cached or older than max_age_days."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company {name: $name})-[:BELONGS_TO]->(i:Industry)
+                WHERE i.peers_json IS NOT NULL
+                  AND (i.peers_saved_at IS NULL
+                       OR duration.between(i.peers_saved_at, datetime()).days <= $max_age)
+                RETURN i.peers_json AS peers_json
+                LIMIT 1
+            """, name=company_name, max_age=max_age_days)
+            row = result.single()
+            if row and row["peers_json"]:
+                import json as _json
+                try:
+                    return _json.loads(row["peers_json"])
+                except Exception:
+                    pass
+        return []
+
+    def save_peers_for_company(self, company_name: str, peers: list) -> None:
+        """Persist peer list JSON on the Industry node linked to this company."""
+        import json as _json
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (c:Company {name: $name})-[:BELONGS_TO]->(i:Industry)
+                SET i.peers_json      = $peers_json,
+                    i.peers_saved_at  = datetime()
+            """, name=company_name, peers_json=_json.dumps(peers))
+
+    def list_companies(self) -> list:
+        """Return all Company nodes as a list of {name, ticker, industry, headquarters}."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company)
+                OPTIONAL MATCH (c)-[:BELONGS_TO]->(i:Industry)
+                RETURN c.name AS name,
+                       c.ticker AS ticker,
+                       c.industry AS industry,
+                       c.headquarters AS headquarters,
+                       i.name AS industry_name
+                ORDER BY c.name
+            """)
+            seen = set()
+            companies = []
+            for r in result:
+                name = r["name"]
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                companies.append({
+                    "name": name,
+                    "ticker": r["ticker"] or "",
+                    "industry": r["industry_name"] or r["industry"] or "",
+                    "headquarters": r["headquarters"] or "",
+                })
+            return companies
+
     def add_financial_data(self, company_name: str, filing_type: str, period: str,
                           data: Dict[str, Any], source: str = "EDGAR") -> Dict:
         """Add financial filing data (10-K, 10-Q)"""
         import json
         with self.driver.session() as session:
             financial_id = f"{company_name}_{filing_type}_{period}"
-            flat_data = {
-                "revenue": data.get("revenue"),
-                "net_income": data.get("net_income"),
-                "total_assets": data.get("total_assets"),
-                "cash": data.get("cash_and_equivalents"),
-                "data_json": json.dumps(data),
-                "relevance_score": data.get("relevance_score", 0.5),
-                "filing_date": data.get("filing_date", ""),
-            }
             result = session.run("""
                 MATCH (c:Company {name: $company_name})
                 MERGE (f:Financial {id: $financial_id})
-                SET f.filing_type = $filing_type,
-                    f.period = $period,
-                    f.source = $source,
-                    f.revenue = $revenue,
-                    f.net_income = $net_income,
-                    f.total_assets = $total_assets,
-                    f.cash = $cash,
-                    f.data_json = $data_json,
-                    f.relevance_score = $relevance_score,
-                    f.filing_date = $filing_date,
-                    f.timestamp = datetime()
+                SET f.filing_type              = $filing_type,
+                    f.period                   = $period,
+                    f.filing_period            = $period,
+                    f.source                   = $source,
+                    f.filing_date              = $filing_date,
+                    f.updated_at               = datetime(),
+                    f.revenue                  = $revenue,
+                    f.gross_profit             = $gross_profit,
+                    f.operating_income         = $operating_income,
+                    f.ebitda                   = $ebitda,
+                    f.net_income               = $net_income,
+                    f.eps_basic                = $eps_basic,
+                    f.eps_diluted              = $eps_diluted,
+                    f.cash_and_equivalents     = $cash_and_equivalents,
+                    f.cash                     = $cash_and_equivalents,
+                    f.short_term_investments   = $short_term_investments,
+                    f.total_current_assets     = $total_current_assets,
+                    f.total_assets             = $total_assets,
+                    f.total_current_liabilities= $total_current_liabilities,
+                    f.long_term_debt           = $long_term_debt,
+                    f.total_liabilities        = $total_liabilities,
+                    f.stockholders_equity      = $stockholders_equity,
+                    f.shares_outstanding       = $shares_outstanding,
+                    f.operating_cash_flow      = $operating_cash_flow,
+                    f.capital_expenditures     = $capital_expenditures,
+                    f.free_cash_flow           = $free_cash_flow,
+                    f.investing_cash_flow      = $investing_cash_flow,
+                    f.financing_cash_flow      = $financing_cash_flow,
+                    f.dividends_paid           = $dividends_paid,
+                    f.share_repurchases        = $share_repurchases,
+                    f.relevance_score          = $relevance_score,
+                    f.data_json                = $data_json
                 MERGE (c)-[:HAS_FILING]->(f)
                 RETURN f
-            """, company_name=company_name, financial_id=financial_id,
-               filing_type=filing_type, period=period, source=source, **flat_data)
+            """,
+                company_name=company_name,
+                financial_id=financial_id,
+                filing_type=filing_type,
+                period=period,
+                source=source,
+                filing_date=data.get("filing_date", ""),
+                revenue=data.get("revenue"),
+                gross_profit=data.get("gross_profit"),
+                operating_income=data.get("operating_income"),
+                ebitda=data.get("ebitda"),
+                net_income=data.get("net_income"),
+                eps_basic=data.get("eps_basic"),
+                eps_diluted=data.get("eps_diluted"),
+                cash_and_equivalents=data.get("cash_and_equivalents"),
+                short_term_investments=data.get("short_term_investments"),
+                total_current_assets=data.get("total_current_assets"),
+                total_assets=data.get("total_assets"),
+                total_current_liabilities=data.get("total_current_liabilities"),
+                long_term_debt=data.get("long_term_debt"),
+                total_liabilities=data.get("total_liabilities"),
+                stockholders_equity=data.get("stockholders_equity"),
+                shares_outstanding=data.get("shares_outstanding"),
+                operating_cash_flow=data.get("operating_cash_flow"),
+                capital_expenditures=data.get("capital_expenditures"),
+                free_cash_flow=data.get("free_cash_flow"),
+                investing_cash_flow=data.get("investing_cash_flow"),
+                financing_cash_flow=data.get("financing_cash_flow"),
+                dividends_paid=data.get("dividends_paid"),
+                share_repurchases=data.get("share_repurchases"),
+                relevance_score=data.get("relevance_score", 0.5),
+                data_json=json.dumps(data),
+            )
             rec = result.single()
             return dict(rec["f"]) if rec else None
 
@@ -216,18 +357,52 @@ class BankingKnowledgeGraph:
             return dict(rec["p"]) if rec else None
 
     def link_to_industry(self, company_name: str, naics_code: str,
-                        industry_name: str, sector: str) -> None:
-        """Link company to industry/sector"""
+                        industry_name: str, sector: str,
+                        naics_classification: Dict = None) -> None:
+        """Link company to industry/sector, storing full NAICS classification."""
+        extra = naics_classification or {}
         with self.driver.session() as session:
             session.run("""
                 MATCH (c:Company {name: $company_name})
                 MERGE (i:Industry {naics_code: $naics_code})
-                SET i.name = $industry_name,
-                    i.sector = $sector,
-                    i.updated_at = datetime()
+                SET i.name           = $industry_name,
+                    i.sector         = $sector,
+                    i.naics_sector   = $naics_sector,
+                    i.naics_subsector = $naics_subsector,
+                    i.confidence     = $confidence,
+                    i.reasoning      = $reasoning,
+                    i.saved_at       = datetime(),
+                    i.updated_at     = datetime()
                 MERGE (c)-[:BELONGS_TO]->(i)
+                SET c.naics_code     = $naics_code,
+                    c.naics_sector   = $naics_sector,
+                    c.naics_saved_at = datetime()
             """, company_name=company_name, naics_code=naics_code,
-               industry_name=industry_name, sector=sector)
+               industry_name=industry_name, sector=sector,
+               naics_sector=extra.get("naics_sector", ""),
+               naics_subsector=extra.get("industry_subsector", ""),
+               confidence=extra.get("confidence", ""),
+               reasoning=extra.get("reasoning", ""))
+
+    def get_naics_for_company(self, company_name: str, max_age_days: int = 180) -> Dict:
+        """Return the stored NAICS classification for a company if recent enough.
+        Returns {} if not found or older than max_age_days.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company {name: $name})-[:BELONGS_TO]->(i:Industry)
+                WHERE i.naics_code IS NOT NULL
+                  AND i.naics_code <> ''
+                  AND (i.saved_at IS NULL
+                       OR duration.between(i.saved_at, datetime()).days <= $max_age)
+                RETURN i
+                ORDER BY i.saved_at DESC
+                LIMIT 1
+            """, name=company_name, max_age=max_age_days)
+            record = result.single()
+            if not record or not record["i"]:
+                return {}
+            return _node_to_dict(record["i"])
 
     def add_peer_relationship(self, company_name: str, peer_name: str,
                              similarity_score: float = None) -> None:
@@ -291,16 +466,24 @@ class BankingKnowledgeGraph:
             )
 
     def get_officers(self, company_name: str) -> List[Dict]:
-        """Retrieve all officer profiles for a company."""
+        """Retrieve all officer profiles for a company.
+        Uses case-insensitive name matching and merges officers from all
+        name variants (e.g. 'Apple', 'APPLE', 'Apple Inc') to handle
+        duplicate nodes created by inconsistent research runs.
+        """
         import json as _json
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (c:Company {name: $company_name})-[:HAS_OFFICER]->(o:Officer)
+                MATCH (c:Company)-[:HAS_OFFICER]->(o:Officer)
+                WHERE toLower(c.name) = toLower($company_name)
+                   OR toLower(c.name) CONTAINS toLower($company_name)
+                   OR toLower($company_name) CONTAINS toLower(c.name)
                 RETURN o
                 ORDER BY o.role
             """, company_name=company_name)
 
             officers = []
+            seen_names: set = set()
             for record in result:
                 if record["o"]:
                     o = _node_to_dict(record["o"])
@@ -313,47 +496,133 @@ class BankingKnowledgeGraph:
                                 o[field] = _json.loads(raw)
                             except Exception:
                                 o[field] = []
-                    officers.append(o)
+                    # Deduplicate across name variants — prefer the richer record
+                    key = (o.get("name", "") or "").strip().lower()
+                    if key and key not in seen_names:
+                        seen_names.add(key)
+                        officers.append(o)
+                    elif key in seen_names:
+                        # Replace with this record if it has more board data
+                        idx = next((i for i, x in enumerate(officers)
+                                    if (x.get("name","") or "").strip().lower() == key), None)
+                        if idx is not None:
+                            existing = officers[idx]
+                            if len(o.get("board_memberships") or []) > len(existing.get("board_memberships") or []):
+                                officers[idx] = o
             return officers
 
     def add_peer_financial_data(self, target_company: str, peer_name: str,
                                 ticker: str, metrics: Dict) -> None:
-        """Store EDGAR financial metrics on a PeerCompany node linked to the target."""
+        """Store EDGAR financial metrics for a peer company.
+
+        Uses the same Company→HAS_FILING→Financial pattern as the main company
+        so all cached filings are multi-period and share a universal TTL policy.
+        A lightweight PeerCompany identity node is also kept for relationship
+        traversal queries.
+        """
         import json as _json
+        # Normalise peer_name: prefer the canonical form already in the DB
+        # so we never create a duplicate lowercase/uppercase Company node.
+        with self.driver.session() as _s:
+            existing = _s.run(
+                "MATCH (c:Company) WHERE toLower(c.name) = toLower($name) "
+                "RETURN c.name LIMIT 1",
+                name=peer_name
+            ).single()
+            if existing:
+                peer_name = existing["c.name"]
+        filing_type   = metrics.get("filing_type", "10-K")
+        filing_period = metrics.get("filing_period", "") or metrics.get("period", "")
+        financial_id  = f"{peer_name}_{filing_type}_{filing_period}"
+
         with self.driver.session() as session:
+            # 1. Upsert a Company node for the peer (lightweight — no full research)
+            session.run("""
+                MERGE (c:Company {name: $peer_name})
+                ON CREATE SET c.ticker     = $ticker,
+                              c.is_peer    = true,
+                              c.created_at = datetime()
+                ON MATCH  SET c.ticker     = $ticker,
+                              c.is_peer    = true
+            """, peer_name=peer_name, ticker=ticker)
+
+            # 2. Write the financial filing node — same schema as add_financial_data
+            session.run("""
+                MATCH (c:Company {name: $peer_name})
+                MERGE (f:Financial {id: $financial_id})
+                SET f.filing_type              = $filing_type,
+                    f.period                   = $filing_period,
+                    f.filing_period            = $filing_period,
+                    f.source                   = 'EDGAR_peer',
+                    f.filing_date              = $filing_date,
+                    f.updated_at               = datetime(),
+                    f.revenue                  = $revenue,
+                    f.gross_profit             = $gross_profit,
+                    f.operating_income         = $operating_income,
+                    f.ebitda                   = $ebitda,
+                    f.net_income               = $net_income,
+                    f.eps_basic                = $eps_basic,
+                    f.eps_diluted              = $eps_diluted,
+                    f.cash_and_equivalents     = $cash,
+                    f.short_term_investments   = $short_term_investments,
+                    f.total_current_assets     = $total_current_assets,
+                    f.total_assets             = $total_assets,
+                    f.total_current_liabilities= $total_current_liabilities,
+                    f.long_term_debt           = $long_term_debt,
+                    f.total_liabilities        = $total_liabilities,
+                    f.stockholders_equity      = $equity,
+                    f.shares_outstanding       = $shares_outstanding,
+                    f.operating_cash_flow      = $ocf,
+                    f.capital_expenditures     = $capex,
+                    f.free_cash_flow           = $fcf,
+                    f.investing_cash_flow      = $investing_cf,
+                    f.financing_cash_flow      = $financing_cf
+                MERGE (c)-[:HAS_FILING]->(f)
+            """,
+                peer_name=peer_name,
+                financial_id=financial_id,
+                filing_type=filing_type,
+                filing_period=filing_period,
+                filing_date=metrics.get("filing_date", ""),
+                revenue=metrics.get("revenue"),
+                gross_profit=metrics.get("gross_profit"),
+                operating_income=metrics.get("operating_income"),
+                ebitda=metrics.get("ebitda"),
+                net_income=metrics.get("net_income"),
+                eps_basic=metrics.get("eps_basic"),
+                eps_diluted=metrics.get("eps_diluted"),
+                cash=metrics.get("cash_and_equivalents"),
+                short_term_investments=metrics.get("short_term_investments"),
+                total_current_assets=metrics.get("total_current_assets"),
+                total_assets=metrics.get("total_assets"),
+                total_current_liabilities=metrics.get("total_current_liabilities"),
+                long_term_debt=metrics.get("long_term_debt"),
+                total_liabilities=metrics.get("total_liabilities"),
+                equity=metrics.get("stockholders_equity"),
+                shares_outstanding=metrics.get("shares_outstanding"),
+                ocf=metrics.get("operating_cash_flow"),
+                capex=metrics.get("capital_expenditures"),
+                fcf=metrics.get("free_cash_flow"),
+                investing_cf=metrics.get("investing_cash_flow"),
+                financing_cf=metrics.get("financing_cash_flow"),
+            )
+
+            # 3. Keep a lightweight PeerCompany identity node for HAS_PEER traversals
             session.run("""
                 MATCH (target:Company {name: $target})
                 MERGE (peer:PeerCompany {name: $peer_name})
-                SET peer.ticker            = $ticker,
-                    peer.relationship      = $relationship,
-                    peer.estimated_size    = $estimated_size,
-                    peer.filing_type       = $filing_type,
-                    peer.filing_period     = $filing_period,
-                    peer.revenue           = $revenue,
-                    peer.net_income        = $net_income,
-                    peer.operating_income  = $operating_income,
-                    peer.total_assets      = $total_assets,
-                    peer.total_liabilities = $total_liabilities,
-                    peer.stockholders_equity = $equity,
-                    peer.operating_cash_flow = $ocf,
-                    peer.updated_at        = datetime()
+                SET peer.ticker         = $ticker,
+                    peer.relationship   = $relationship,
+                    peer.estimated_size = $estimated_size,
+                    peer.updated_at     = datetime()
                 MERGE (target)-[r:HAS_PEER]->(peer)
                 SET r.updated_at = datetime()
             """,
-            target=target_company,
-            peer_name=peer_name,
-            ticker=ticker,
-            relationship=metrics.get("relationship", "industry_peer"),
-            estimated_size=metrics.get("estimated_size", "unknown"),
-            filing_type=metrics.get("filing_type", "10-K"),
-            filing_period=metrics.get("filing_period", ""),
-            revenue=metrics.get("revenue"),
-            net_income=metrics.get("net_income"),
-            operating_income=metrics.get("operating_income"),
-            total_assets=metrics.get("total_assets"),
-            total_liabilities=metrics.get("total_liabilities"),
-            equity=metrics.get("stockholders_equity"),
-            ocf=metrics.get("operating_cash_flow"),
+                target=target_company,
+                peer_name=peer_name,
+                ticker=ticker,
+                relationship=metrics.get("relationship", "industry_peer"),
+                estimated_size=metrics.get("estimated_size", "unknown"),
             )
 
     def get_peer_comparison(self, company_name: str) -> Dict:
@@ -376,17 +645,42 @@ class BankingKnowledgeGraph:
             company_node = _node_to_dict(target_record["c"]) if target_record["c"] else {}
             latest_f = _node_to_dict(target_record["latest_filing"]) if target_record["latest_filing"] else {}
 
-            # Get all peer companies with their financials
+            # Get all peer companies with their most-recent filing.
+            # PeerCompany nodes may have financials stored directly on them (legacy)
+            # or via a Company {ticker} → HAS_FILING → Financial chain (new schema).
             peers_result = session.run("""
-                MATCH (c:Company {name: $name})-[:HAS_PEER]->(peer:PeerCompany)
-                RETURN peer
-                ORDER BY peer.revenue DESC
+                MATCH (c:Company {name: $name})-[:HAS_PEER]->(pci:PeerCompany)
+                OPTIONAL MATCH (pc:Company)-[:HAS_FILING]->(f:Financial)
+                WHERE pc.ticker = pci.ticker
+                WITH pci, pc, f
+                ORDER BY f.filing_date DESC
+                WITH pci, pc, collect(f)[0] AS latest
+                RETURN pci, pc, latest
+                ORDER BY coalesce(latest.revenue, pci.revenue, 0) DESC
             """, name=company_name)
 
             peers = []
             for record in peers_result:
-                if record["peer"]:
-                    peers.append(_node_to_dict(record["peer"]))
+                pci  = _node_to_dict(record["pci"])  if record["pci"]   else {}
+                pc   = _node_to_dict(record["pc"])   if record["pc"]    else {}
+                f    = _node_to_dict(record["latest"]) if record["latest"] else {}
+                # Fall back to financials stored directly on the PeerCompany node
+                # (legacy schema wrote them there)
+                entry = {
+                    "name":               pci.get("name", pc.get("name", pci.get("ticker", ""))),
+                    "ticker":             pci.get("ticker", pc.get("ticker")),
+                    "relationship":       pci.get("relationship", "industry_peer"),
+                    "estimated_size":     pci.get("estimated_size", "unknown"),
+                    "revenue":            f.get("revenue") or pci.get("revenue"),
+                    "net_income":         f.get("net_income") or pci.get("net_income"),
+                    "operating_income":   f.get("operating_income") or pci.get("operating_income"),
+                    "total_assets":       f.get("total_assets") or pci.get("total_assets"),
+                    "stockholders_equity":f.get("stockholders_equity") or pci.get("stockholders_equity"),
+                    "operating_cash_flow":f.get("operating_cash_flow") or pci.get("operating_cash_flow"),
+                    "filing_period":      f.get("filing_period") or f.get("period") or pci.get("filing_period") or pci.get("period", ""),
+                    "filing_type":        f.get("filing_type") or pci.get("filing_type", ""),
+                }
+                peers.append(entry)
 
             # Also include legacy PEER_OF linked Company nodes that have financials
             legacy_result = session.run("""
@@ -430,6 +724,118 @@ class BankingKnowledgeGraph:
                     ep["name"] == p["name"] for ep in peers
                 )],
             }
+
+    def get_financials_by_ticker(self, ticker: str, max_age_days: int = FINANCIAL_CACHE_TTL_DAYS) -> List[Dict]:
+        """Return cached financial filings for a ticker from the graph.
+
+        Searches Company→HAS_FILING→Financial for both full-research companies
+        and peer companies (which now use the same storage pattern).
+        The legacy flat PeerCompany fallback is kept for backwards compatibility.
+        Returns [] if nothing found or all records are stale.
+        """
+        with self.driver.session() as session:
+            # Company→HAS_FILING→Financial — covers both main companies and peers
+            result = session.run("""
+                MATCH (c:Company)
+                WHERE toUpper(c.ticker) = toUpper($ticker)
+                MATCH (c)-[:HAS_FILING]->(f:Financial)
+                WHERE f.updated_at IS NULL
+                   OR duration.between(f.updated_at, datetime()).days <= $max_age
+                RETURN f
+                ORDER BY f.filing_date DESC
+                LIMIT 4
+            """, ticker=ticker, max_age=max_age_days)
+            rows = [_node_to_dict(r["f"]) for r in result if r["f"]]
+
+            # Legacy fallback: flat PeerCompany nodes written by the old schema
+            if not rows:
+                result2 = session.run("""
+                    MATCH (p:PeerCompany)
+                    WHERE toUpper(p.ticker) = toUpper($ticker)
+                      AND (p.updated_at IS NULL
+                           OR duration.between(p.updated_at, datetime()).days <= $max_age)
+                    RETURN p
+                    LIMIT 1
+                """, ticker=ticker, max_age=max_age_days)
+                for r in result2:
+                    if r["p"]:
+                        node = _node_to_dict(r["p"])
+                        rows.append({
+                            "filing_period":      node.get("filing_period", ""),
+                            "filing_type":        node.get("filing_type", "10-K"),
+                            "revenue":            node.get("revenue"),
+                            "net_income":         node.get("net_income"),
+                            "operating_income":   node.get("operating_income"),
+                            "total_assets":       node.get("total_assets"),
+                            "total_liabilities":  node.get("total_liabilities"),
+                            "stockholders_equity":node.get("stockholders_equity"),
+                            "operating_cash_flow":node.get("operating_cash_flow"),
+                            "_source": "legacy_peer_cache",
+                        })
+        return rows
+
+    def get_financials_by_naics(self, naics_code: str, max_age_days: int = 90) -> List[Dict]:
+        """Return all peer financial records for companies in a NAICS sector.
+        Useful for skipping EDGAR calls when we already have data for the same sector.
+        Returns a list of dicts: {name, ticker, filing_period, revenue, ...}
+        """
+        with self.driver.session() as session:
+            # Companies with a matching NAICS industry node
+            result = session.run("""
+                MATCH (c:Company)-[:BELONGS_TO]->(i:Industry)
+                WHERE i.naics_code STARTS WITH $prefix
+                  OR  i.naics_sector = $prefix
+                MATCH (c)-[:HAS_FILING]->(f:Financial)
+                WHERE f.updated_at IS NULL
+                   OR duration.between(f.updated_at, datetime()).days <= $max_age
+                WITH c, f
+                ORDER BY f.filing_date DESC
+                WITH c, collect(f)[0] AS latest
+                RETURN c.name AS name, c.ticker AS ticker, latest AS f
+            """, prefix=naics_code[:2], max_age=max_age_days)
+
+            companies = []
+            for r in result:
+                if r["f"]:
+                    f = _node_to_dict(r["f"])
+                    companies.append({
+                        "name":    r["name"],
+                        "ticker":  r["ticker"],
+                        "filing_period": f.get("period", f.get("filing_period", "")),
+                        "filing_type":   f.get("filing_type", ""),
+                        "revenue":       f.get("revenue"),
+                        "net_income":    f.get("net_income"),
+                        "operating_income": f.get("operating_income"),
+                        "total_assets":  f.get("total_assets"),
+                        "stockholders_equity": f.get("stockholders_equity"),
+                        "operating_cash_flow": f.get("operating_cash_flow"),
+                    })
+
+            # Also check PeerCompany nodes tagged with same NAICS via target company
+            result2 = session.run("""
+                MATCH (target:Company)-[:BELONGS_TO]->(i:Industry)
+                WHERE i.naics_code STARTS WITH $prefix
+                   OR i.naics_sector = $prefix
+                MATCH (target)-[:HAS_PEER]->(p:PeerCompany)
+                WHERE p.revenue IS NOT NULL
+                  AND (p.updated_at IS NULL
+                       OR duration.between(p.updated_at, datetime()).days <= $max_age)
+                RETURN DISTINCT p.name AS name, p.ticker AS ticker,
+                       p.filing_period AS filing_period, p.filing_type AS filing_type,
+                       p.revenue AS revenue, p.net_income AS net_income,
+                       p.operating_income AS operating_income,
+                       p.total_assets AS total_assets,
+                       p.stockholders_equity AS stockholders_equity,
+                       p.operating_cash_flow AS operating_cash_flow
+            """, prefix=naics_code[:2], max_age=max_age_days)
+
+            seen = {c["name"] for c in companies}
+            for r in result2:
+                if r["name"] and r["name"] not in seen:
+                    companies.append(dict(r))
+                    seen.add(r["name"])
+
+        return companies
 
     def get_company_graph(self, company_name: str, max_depth: int = 2) -> Dict:
         """Get complete company graph with all dimensions"""
@@ -487,9 +893,81 @@ class BankingKnowledgeGraph:
                 except Exception:
                     pass
 
+            # Unpack data_json for each financial node and normalise field names
+            def _unpack_financial(node) -> dict:
+                import json as _json
+                item = _node_to_dict(node)
+                try:
+                    inner = _json.loads(item.get("data_json", "{}") or "{}")
+                    # handle double-nested data_json
+                    inner2 = _json.loads(inner.get("data_json", "{}") or "{}")
+                    merged = {**inner2, **inner, **item}
+                except Exception:
+                    merged = item
+                merged.pop("data_json", None)
+                # Normalise field name aliases so FinancialMetrics always finds them
+                aliases = {
+                    "assets":     ["total_assets"],
+                    "liabilities":["total_liabilities"],
+                    "equity":     ["stockholders_equity", "shareholders_equity"],
+                    "operating_income": ["operating_income"],
+                }
+                for target, sources in aliases.items():
+                    if merged.get(target) is None:
+                        for src in sources:
+                            if merged.get(src) is not None:
+                                merged[target] = merged[src]
+                                break
+                return merged
+
+            unpacked = [_unpack_financial(f) for f in record["financials"] if f]
+
+            # Count how many key metric fields are populated — used for dedup below
+            _KEY_FIELDS = (
+                "operating_income", "total_liabilities", "stockholders_equity",
+                "operating_cash_flow", "long_term_debt", "gross_profit",
+            )
+            def _richness(f: dict) -> int:
+                return sum(1 for k in _KEY_FIELDS if f.get(k) is not None)
+
+            # Normalise period string so "2026-Q1" and "Q1 2026" collapse to the
+            # same key, keeping only the richest record per period.
+            import re as _re
+            def _norm_period(p: str) -> str:
+                p = (p or "").upper().strip()
+                # "Q1 2026" / "2026-Q1" / "2026Q1" → "Q12026"
+                m = _re.search(r"Q(\d)\s*[-]?\s*(\d{4})|(\d{4})\s*[-]?\s*Q(\d)", p)
+                if m:
+                    q, yr = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
+                    return f"Q{q}{yr}"
+                # "FY2024" / "2024" / "2025" → "FY2024"
+                m2 = _re.search(r"(\d{4})", p)
+                if m2:
+                    return f"FY{m2.group(1)}"
+                return p
+
+            seen_periods: dict = {}  # norm_period → index in deduped list
+            deduped: list = []
+            for f in unpacked:
+                period_str = f.get("filing_period") or f.get("period") or ""
+                norm = _norm_period(period_str)
+                if norm in seen_periods:
+                    existing_idx = seen_periods[norm]
+                    if _richness(f) > _richness(deduped[existing_idx]):
+                        deduped[existing_idx] = f  # replace with richer record
+                else:
+                    seen_periods[norm] = len(deduped)
+                    deduped.append(f)
+
+            # Sort richest + most recent first
+            deduped.sort(key=lambda f: (
+                -_richness(f),
+                -(int(str(f.get("filing_date", "") or "").replace("-", "")[:8] or 0)),
+            ))
+
             return {
                 "company": company_data,
-                "financials": [_node_to_dict(f) for f in record["financials"] if f],
+                "financials": deduped,
                 "news": news_items,
                 "news_analysis": news_analysis,
                 "temporal_summary": temporal_summary,
@@ -587,3 +1065,153 @@ class BankingKnowledgeGraph:
                 DETACH DELETE n
                 DELETE r
             """, company_name=company_name)
+
+    # ── RM Activity Log ───────────────────────────────────────────────────────
+
+    def add_activity(self, company_name: str, activity: Dict) -> str:
+        """Log an RM activity (call, email, meeting) against a company."""
+        import json as _json, uuid as _uuid
+        activity_id = activity.get("id") or str(_uuid.uuid4())
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (c:Company)
+                WHERE toLower(c.name) = toLower($company_name)
+                   OR toLower(c.name) CONTAINS toLower($company_name)
+                   OR toLower($company_name) CONTAINS toLower(c.name)
+                WITH c LIMIT 1
+                MERGE (a:Activity {id: $activity_id})
+                SET a.type          = $type,
+                    a.date          = $date,
+                    a.contact_name  = $contact_name,
+                    a.contact_role  = $contact_role,
+                    a.notes         = $notes,
+                    a.next_action   = $next_action,
+                    a.created_at    = datetime()
+                MERGE (c)-[:HAS_ACTIVITY]->(a)
+            """,
+            company_name=company_name,
+            activity_id=activity_id,
+            type=activity.get("type", "call"),
+            date=activity.get("date", ""),
+            contact_name=activity.get("contact_name", ""),
+            contact_role=activity.get("contact_role", ""),
+            notes=activity.get("notes", ""),
+            next_action=activity.get("next_action", ""),
+            )
+        return activity_id
+
+    def get_activities(self, company_name: str) -> List[Dict]:
+        """Get all RM activities for a company, newest first."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company)-[:HAS_ACTIVITY]->(a:Activity)
+                WHERE toLower(c.name) = toLower($company_name)
+                   OR toLower(c.name) CONTAINS toLower($company_name)
+                   OR toLower($company_name) CONTAINS toLower(c.name)
+                RETURN a ORDER BY a.date DESC
+            """, company_name=company_name)
+            return [_node_to_dict(r["a"]) for r in result if r["a"]]
+
+    def delete_activity(self, activity_id: str) -> None:
+        with self.driver.session() as session:
+            session.run("MATCH (a:Activity {id: $id}) DETACH DELETE a",
+                        id=activity_id)
+
+    # ── Prior Deals / Existing Products ──────────────────────────────────────
+
+    def add_deal(self, company_name: str, deal: Dict) -> str:
+        """Record an existing or past WF deal / product relationship."""
+        import uuid as _uuid
+        deal_id = deal.get("id") or str(_uuid.uuid4())
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (c:Company)
+                WHERE toLower(c.name) = toLower($company_name)
+                   OR toLower(c.name) CONTAINS toLower($company_name)
+                   OR toLower($company_name) CONTAINS toLower(c.name)
+                WITH c LIMIT 1
+                MERGE (d:Deal {id: $deal_id})
+                SET d.product       = $product,
+                    d.category      = $category,
+                    d.status        = $status,
+                    d.amount        = $amount,
+                    d.start_date    = $start_date,
+                    d.notes         = $notes,
+                    d.created_at    = datetime()
+                MERGE (c)-[:HAS_DEAL]->(d)
+            """,
+            company_name=company_name,
+            deal_id=deal_id,
+            product=deal.get("product", ""),
+            category=deal.get("category", ""),
+            status=deal.get("status", "active"),
+            amount=deal.get("amount", ""),
+            start_date=deal.get("start_date", ""),
+            notes=deal.get("notes", ""),
+            )
+        return deal_id
+
+    def get_deals(self, company_name: str) -> List[Dict]:
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company)-[:HAS_DEAL]->(d:Deal)
+                WHERE toLower(c.name) = toLower($company_name)
+                   OR toLower(c.name) CONTAINS toLower($company_name)
+                   OR toLower($company_name) CONTAINS toLower(c.name)
+                RETURN d ORDER BY d.start_date DESC
+            """, company_name=company_name)
+            return [_node_to_dict(r["d"]) for r in result if r["d"]]
+
+    def delete_deal(self, deal_id: str) -> None:
+        with self.driver.session() as session:
+            session.run("MATCH (d:Deal {id: $id}) DETACH DELETE d", id=deal_id)
+
+    # ── Portfolio View ────────────────────────────────────────────────────────
+
+    def get_portfolio_summary(self) -> List[Dict]:
+        """Return all companies with summary stats for the RM portfolio view."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (c:Company)
+                WHERE c.name <> 'Wells Fargo'
+                OPTIONAL MATCH (c)-[:HAS_FILING]->(f:Financial)
+                OPTIONAL MATCH (c)-[:HAS_ACTIVITY]->(a:Activity)
+                OPTIONAL MATCH (c)-[:HAS_DEAL]->(d:Deal)
+                OPTIONAL MATCH (c)-[:MENTIONED_IN]->(n:News)
+                RETURN c,
+                       count(DISTINCT f) as fin_count,
+                       count(DISTINCT a) as activity_count,
+                       count(DISTINCT d) as deal_count,
+                       count(DISTINCT n) as news_count,
+                       max(a.date) as last_contact
+                ORDER BY c.name
+            """)
+            rows = []
+            for r in result:
+                company = _node_to_dict(r["c"])
+                # Skip duplicate/garbage names
+                name = company.get("name", "").strip()
+                if not name:
+                    continue
+                rows.append({
+                    "name": name,
+                    "ticker": company.get("ticker", ""),
+                    "industry": company.get("industry", ""),
+                    "headquarters": company.get("headquarters", ""),
+                    "fin_count": r["fin_count"],
+                    "activity_count": r["activity_count"],
+                    "deal_count": r["deal_count"],
+                    "news_count": r["news_count"],
+                    "last_contact": r["last_contact"],
+                    "naics_code": company.get("naics_code", ""),
+                    "naics_sector": company.get("naics_sector", ""),
+                })
+            # Deduplicate by lowercase name
+            seen = set()
+            deduped = []
+            for row in rows:
+                key = row["name"].lower().strip()
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(row)
+            return deduped

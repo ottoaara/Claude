@@ -10,8 +10,8 @@ Responsibilities:
 """
 
 from typing import Dict, List, Optional
-from langchain_anthropic import ChatAnthropic
-from langchain.prompts import ChatPromptTemplate
+from ..llm_factory import get_llm
+from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
 from datetime import datetime
@@ -53,13 +53,7 @@ class NewsClassifier:
     """
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
-            api_key=api_key,
-            temperature=0,
-            max_tokens=4096,
-        )
+        self.llm = get_llm(temperature=0)
 
         self._classify_prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a commercial banking risk analyst classifying news items.

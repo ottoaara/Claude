@@ -120,7 +120,12 @@ export default function GraphVisualization({ companyName }: Props) {
     e => visibleNodeIds.has(e.source as string) && visibleNodeIds.has(e.target as string)
   );
 
-  const transformedData = {
+  // Key changes whenever hidden types change, forcing ForceGraph2D to remount.
+  // react-force-graph-2d mutates node objects in-place (adds x/y/vx/vy), so we
+  // deep-copy the filtered data on each render so the filter always starts clean.
+  const filterKey = [...hiddenTypes].sort().join(",") || "all";
+
+  const graphDataForRender = {
     nodes: visibleNodes.map((node) => ({
       id: node.id,
       name: node.label,
@@ -135,9 +140,6 @@ export default function GraphVisualization({ companyName }: Props) {
       data: edge.data,
     })),
   };
-      data: edge.data,
-    })),
-  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -145,8 +147,9 @@ export default function GraphVisualization({ companyName }: Props) {
       <div className="lg:col-span-2 bg-slate-900 rounded-2xl overflow-hidden border-2 border-gray-700 shadow-md">
         <div className="h-[700px] relative">
           <ForceGraph2D
+            key={filterKey}
             ref={graphRef}
-            graphData={transformedData}
+            graphData={graphDataForRender}
             nodeLabel="name"
             nodeColor={(n: any) => getNodeColor(n.type)}
             nodeRelSize={6}

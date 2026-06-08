@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
-import json
+from typing import Dict, List, Any, Optional
 
 
 class TemporalDimension:
@@ -9,20 +8,28 @@ class TemporalDimension:
     def __init__(self):
         # Define relevance windows (in days)
         self.relevance_windows = {
-            "news": 90,  # News older than 90 days is less relevant
-            "financial": 365,  # Annual financial data
-            "quarterly_financial": 120,  # Quarterly data
-            "products": 730,  # Product data valid for ~2 years
-            "industry_trends": 180,  # Industry trends refresh every 6 months
-            "company_info": 365  # Company info yearly refresh
+            "news": 90,               # News older than 90 days is less relevant
+            "financial": 365,         # Annual financial data
+            "quarterly_financial": 120,
+            "products": 730,          # Product data valid for ~2 years
+            "industry_trends": 180,   # Industry trends refresh every 6 months
+            "company_info": 365,      # Company info yearly refresh
+            # ── New dimensions ──────────────────────────────────────────────
+            "officer_profiles": 120,  # Executive roles are volatile; re-research after 4 months
+            "board_interlock": 180,   # Board seats change every ~6 months
+            "incumbent_bank": 365,    # Credit agreements are annual; verify yearly
         }
 
         # Decay factors for scoring
         self.decay_rates = {
-            "news": 0.05,  # News decays quickly
-            "financial": 0.01,  # Financial data decays slowly
+            "news": 0.05,           # News decays quickly
+            "financial": 0.01,      # Financial data decays slowly
             "products": 0.02,
-            "industry": 0.03
+            "industry": 0.03,
+            # ── New dimensions ──────────────────────────────────────────────
+            "officer_profiles": 0.015,   # Moderate decay — roles shift gradually
+            "board_interlock": 0.012,    # Similar to industry trends
+            "incumbent_bank": 0.008,     # Slow decay — contracts last years
         }
 
     def calculate_recency_score(self, item_date: str, data_type: str = "general") -> float:
@@ -264,3 +271,105 @@ class TemporalDimension:
 
         except Exception:
             return True
+
+    # ── New temporal helpers for RM dimensions ─────────────────────────────
+
+    def score_officer_freshness(self, officer: Dict) -> Dict:
+        """
+        Compute temporal freshness for a stored officer profile.
+
+        Thresholds (based on officer_profiles window = 120 days):
+          < 60 days   → fresh   (score ≥ 0.80) — use as-is
+          60–120 days → recent  (0.50–0.80) — still reliable
+          120–180 days→ aged    (0.30–0.50) → needs_refresh = True
+          > 180 days  → stale   (< 0.30)   → needs_refresh = True
+        """
+        researched_at = officer.get("researched_at") or ""
+        if researched_at:
+            score = self.calculate_recency_score(researched_at, "officer_profiles")
+        else:
+            score = 0.3  # No timestamp → treat as aged
+
+        days_old: Optional[int] = None
+        if researched_at:
+            try:
+                dt = datetime.fromisoformat(researched_at.replace("Z", "+00:00"))
+                days_old = max(0, (datetime.now() - dt.replace(tzinfo=None)).days)
+            except Exception:
+                pass
+
+        if score >= 0.80:
+            label = "fresh"
+        elif score >= 0.50:
+            label = "recent"
+        elif score >= 0.30:
+            label = "aged"
+        else:
+            label = "stale"
+
+        return {
+            "score": round(score, 3),
+            "needs_refresh": score < 0.50,   # Threshold: > 120 days
+            "days_old": days_old,
+            "label": label,
+        }
+
+    def contact_urgency_boost(self, activities: List[Dict]) -> Dict:
+        """
+        Derive urgency multiplier from RM contact recency.
+
+        Thresholds:
+          < 30 days   → no boost (1.0) — active relationship
+          30–90 days  → mild boost (1.25) — note cadence
+          90–180 days → moderate boost (1.5) — elevate medium → high
+          > 180 days  → high boost (2.0) — elevate all to high
+          No record   → boost 1.5 — treat as contact gap
+
+        Returns: days_since_contact, boost_factor, urgency_note
+        """
+        if not activities:
+            return {
+                "days_since_contact": None,
+                "boost_factor": 1.5,
+                "urgency_note": "No contact on record — medium triggers elevated to high urgency",
+            }
+
+        latest = None
+        for act in activities:
+            date_str = (act.get("date") or "")[:10]
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                if latest is None or dt > latest:
+                    latest = dt
+            except Exception:
+                continue
+
+        if latest is None:
+            return {
+                "days_since_contact": None,
+                "boost_factor": 1.5,
+                "urgency_note": "No dated contact found — medium triggers elevated to high urgency",
+            }
+
+        days = max(0, (datetime.now() - latest).days)
+
+        if days < 30:
+            return {"days_since_contact": days, "boost_factor": 1.0, "urgency_note": None}
+        elif days < 90:
+            return {
+                "days_since_contact": days,
+                "boost_factor": 1.25,
+                "urgency_note": f"Last contact {days} days ago — maintain cadence",
+            }
+        elif days < 180:
+            return {
+                "days_since_contact": days,
+                "boost_factor": 1.5,
+                "urgency_note": f"Contact gap: {days} days — medium triggers elevated to high urgency",
+            }
+        else:
+            return {
+                "days_since_contact": days,
+                "boost_factor": 2.0,
+                "urgency_note": f"Extended silence: {days} days — all triggers elevated to high urgency",
+            }

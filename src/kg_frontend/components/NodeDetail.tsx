@@ -29,7 +29,7 @@ export default function NodeDetail({
           <p className="font-semibold text-white">{node.id}</p>
           <p className="text-xs text-gray-400">{node.type}</p>
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white text-lg leading-none">×</button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white text-xs font-bold uppercase tracking-wide">Close</button>
       </div>
 
       {Object.keys(node.attributes ?? {}).length > 0 && (

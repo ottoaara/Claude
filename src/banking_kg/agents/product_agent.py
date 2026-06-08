@@ -1,6 +1,6 @@
 from typing import Dict, List
-from langchain_anthropic import ChatAnthropic
-from langchain.prompts import ChatPromptTemplate
+from ..llm_factory import get_llm
+from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
 import random
@@ -10,13 +10,7 @@ class ProductAgent:
     """Agent for generating mock product data (for demo purposes)"""
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
-            api_key=api_key,
-            temperature=0.7,  # Higher temperature for creative generation
-            max_tokens=4096,
-        )
+        self.llm = get_llm(temperature=0.7)
 
     def generate_products(self, company_name: str, industry: str,
                          company_description: str = None) -> List[Dict]:

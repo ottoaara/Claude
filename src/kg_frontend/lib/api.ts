@@ -166,8 +166,16 @@ export const api = {
     return fetchAPI('/companies');
   },
 
-  async getFreshness(companyName: string): Promise<any> {
-    return fetchAPI(`/company/${encodeURIComponent(companyName)}/freshness`);
+  async getFreshness(
+    companyName: string,
+    windows?: { fin_window?: number; news_window?: number; prod_window?: number }
+  ): Promise<any> {
+    const params = new URLSearchParams();
+    if (windows?.fin_window  != null) params.set("fin_window",  String(windows.fin_window));
+    if (windows?.news_window != null) params.set("news_window", String(windows.news_window));
+    if (windows?.prod_window != null) params.set("prod_window", String(windows.prod_window));
+    const qs = params.toString();
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/freshness${qs ? "?" + qs : ""}`);
   },
 
   async getPeerComparison(companyName: string): Promise<{
@@ -205,8 +213,91 @@ export const api = {
     return fetchAPI(`/stock/${encodeURIComponent(ticker)}/around-dates?dates=${encodeURIComponent(dateParam)}`);
   },
 
+  async getRecommendations(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/recommendations`);
+  },
+
+  async getBoardInterlocks(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/board-interlocks`);
+  },
+
+  async getRelationshipMap(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/relationship-map`);
+  },
+
+  async getTriggers(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/triggers`);
+  },
+
+  async getCovenantWatch(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/covenant-watch`);
+  },
+
+  async getIncumbentBank(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/incumbent-bank`);
+  },
+
+  async getMeetingBrief(companyName: string, contactName?: string, contactRole?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (contactName) params.set("contact_name", contactName);
+    if (contactRole) params.set("contact_role", contactRole);
+    const qs = params.toString();
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/meeting-brief${qs ? "?" + qs : ""}`);
+  },
+
+  async getActivities(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/activity`);
+  },
+
+  async addActivity(companyName: string, activity: {
+    type: string; date: string; contact_name?: string;
+    contact_role?: string; notes?: string; next_action?: string;
+  }): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/activity`, {
+      method: "POST", body: JSON.stringify(activity),
+    });
+  },
+
+  async deleteActivity(activityId: string): Promise<any> {
+    return fetchAPI(`/activity/${encodeURIComponent(activityId)}`, { method: "DELETE" });
+  },
+
+  async getDeals(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/deals`);
+  },
+
+  async addDeal(companyName: string, deal: {
+    product: string; category: string; status?: string;
+    amount?: string; start_date?: string; notes?: string;
+  }): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/deals`, {
+      method: "POST", body: JSON.stringify(deal),
+    });
+  },
+
+  async deleteDeal(dealId: string): Promise<any> {
+    return fetchAPI(`/deal/${encodeURIComponent(dealId)}`, { method: "DELETE" });
+  },
+
+  async getPortfolio(): Promise<any> {
+    return fetchAPI("/rm/portfolio");
+  },
+
+  async getPitchScore(companyName: string): Promise<any> {
+    return fetchAPI(`/company/${encodeURIComponent(companyName)}/pitch-score`);
+  },
+
+  async getIndustryHeatmap(): Promise<any> {
+    return fetchAPI("/rm/industry-heatmap");
+  },
+
+  async getCompanies(): Promise<{ name: string; ticker: string; industry: string; headquarters: string }[]> {
+    const data = await fetchAPI('/companies');
+    return data.companies ?? [];
+  },
+
   // System endpoints
-  async healthCheck(): Promise<{ status: string; neo4j_connected: boolean; orchestrator_ready: boolean }> {
+  async healthCheck(): Promise<{ status: string; neo4j_connected: boolean; orchestrator_ready: boolean; llm_provider?: string; llm_model?: string; llm_label?: string }> {
     return fetchAPI('/health');
   },
 };

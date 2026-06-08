@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import re
 from datetime import datetime
-from langchain_anthropic import ChatAnthropic
-from langchain.prompts import ChatPromptTemplate
+from ..llm_factory import get_llm, robust_parse_json
+from langchain_core.prompts import ChatPromptTemplate
 
 
 class EdgarFinancialAgent:
@@ -39,27 +39,129 @@ class EdgarFinancialAgent:
 
     def __init__(self, company_email: str = None):
         self.email = company_email or os.getenv("USER_EMAIL", "user@example.com")
-        self.company_name = os.getenv("COMPANY_NAME", "WellsFargoBank")
+        self.company_name = os.getenv("COMPANY_NAME", "ResearchApp")
         self.download_dir = Path("./data/edgar_downloads")
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
         # Version 5.x API - takes company_name and email_address separately
-        print(f"📊 Edgar: Initializing with company={self.company_name}, email={self.email}")
+        print(f"📊 Edgar: Initializing with email={self.email}")
 
         self.downloader = Downloader(self.company_name, self.email)
 
-        # Initialize Claude for financial data extraction
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
-            api_key=api_key,
-            temperature=0
-        )
+        from ..llm_factory import get_llm
+        self.llm = get_llm(temperature=0)
+
+    def get_latest_filing_date(self, ticker: str, filing_type: str = "10-K") -> str | None:
+        """Check SEC EDGAR submissions API to get the date of the most recent filing.
+        Returns ISO date string (e.g. '2025-12-31') or None on failure.
+        Does NOT download anything — reads lightweight JSON metadata only (~20KB).
+        """
+        import requests
+
+        canonical = self._normalise_ticker(ticker)
+        if not canonical:
+            return None
+
+        headers = {"User-Agent": f"{self.company_name} {self.email}"}
+        try:
+            # Step 1: resolve ticker → CIK via SEC company_tickers.json
+            tickers_r = requests.get(
+                "https://www.sec.gov/files/company_tickers.json",
+                headers=headers, timeout=10
+            )
+            tickers_r.raise_for_status()
+            tickers_data = tickers_r.json()
+
+            cik = None
+            for entry in tickers_data.values():
+                if entry.get("ticker", "").upper() == canonical.upper():
+                    cik = str(entry["cik_str"]).zfill(10)
+                    break
+            if not cik:
+                return None
+
+            # Step 2: fetch submissions metadata
+            sub_r = requests.get(
+                f"https://data.sec.gov/submissions/CIK{cik}.json",
+                headers=headers, timeout=15
+            )
+            sub_r.raise_for_status()
+            sub_data = sub_r.json()
+
+            recent = sub_data.get("filings", {}).get("recent", {})
+            forms = recent.get("form", [])
+            dates = recent.get("filingDate", [])
+
+            for form, date in zip(forms, dates):
+                if form == filing_type:
+                    return date  # list is most-recent-first
+        except Exception as e:
+            print(f"   ⚠️  EDGAR freshness check failed for {ticker}: {e}")
+
+        return None
+
+    def is_filing_stale(self, ticker: str, cached_period: str,
+                        filing_type: str = "10-K") -> bool:
+        """Return True if EDGAR has a newer filing than what we have cached.
+
+        Fast path: if the filing already exists on disk, skip the SEC API call
+        entirely — the disk file is the source of truth for what we downloaded.
+        cached_period: the filing_period string we stored (e.g. 'FY2024', 'Q1 2026').
+        """
+        # ── Disk fast-path ────────────────────────────────────────────────
+        # If we already have the file on disk the downloader would just re-download
+        # the same thing anyway.  Trust the Neo4j TTL to decide freshness instead.
+        for base in [self.download_dir / "sec-edgar-filings", Path("./sec-edgar-filings")]:
+            company_dir = base / ticker / filing_type
+            if company_dir.exists():
+                filing_dirs = [d for d in company_dir.iterdir() if d.is_dir()]
+                if filing_dirs:
+                    return False  # files on disk — let Neo4j TTL decide
+        # ─────────────────────────────────────────────────────────────────
+
+        latest_date = self.get_latest_filing_date(ticker, filing_type)
+        if not latest_date:
+            return False  # can't determine — keep cache
+
+        # Normalise cached period to year for simple comparison
+        import re
+        cached_year_match = re.search(r"20\d{2}", cached_period or "")
+        if not cached_year_match:
+            return True  # unknown format — refresh to be safe
+        cached_year = int(cached_year_match.group())
+        latest_year = int(latest_date[:4])
+        return latest_year > cached_year
 
     def fetch_filings(self, ticker: str, filing_type: str = "10-K",
                      num_filings: int = 1) -> List[Path]:
-        """Download SEC filings for a company"""
+        """Return paths to SEC filings, downloading only if not already on disk."""
         try:
+            # ── Disk cache check ──────────────────────────────────────────
+            # sec-edgar-filings may be under download_dir or project root
+            for base in [self.download_dir / "sec-edgar-filings", Path("./sec-edgar-filings")]:
+                company_dir = base / ticker / filing_type
+                if company_dir.exists():
+                    filing_dirs = sorted(
+                        [d for d in company_dir.iterdir() if d.is_dir()],
+                        key=lambda x: x.name, reverse=True
+                    )
+                    cached_filings: List[Path] = []
+                    for filing_dir in filing_dirs[:num_filings]:
+                        for filename in ["full-submission.txt", "primary-document.html",
+                                         "filing-details.xml"]:
+                            fp = filing_dir / filename
+                            if fp.exists():
+                                cached_filings.append(fp)
+                                break
+                        else:
+                            files_in_dir = list(filing_dir.glob("*"))
+                            if files_in_dir:
+                                cached_filings.append(files_in_dir[0])
+                    if cached_filings:
+                        print(f"   ✅ Disk cache hit: {len(cached_filings)} {filing_type} filing(s) for {ticker} — skipping download")
+                        return cached_filings
+            # ─────────────────────────────────────────────────────────────
+
             print(f"   Downloading {filing_type} for {ticker} to {self.download_dir}")
 
             # Version 5.x saves to current directory / sec-edgar-filings
@@ -75,32 +177,23 @@ class EdgarFinancialAgent:
                 os.chdir(original_dir)
 
             # Check where files were actually saved
-            # Version 5.x saves to current directory / sec-edgar-filings
-            # We changed to download_dir, so files should be there
             company_dir = self.download_dir / "sec-edgar-filings" / ticker / filing_type
 
-            # But also check the project root in case it didn't respect the chdir
             if not company_dir.exists():
-                # Try project root
                 alt_company_dir = Path("./sec-edgar-filings") / ticker / filing_type
                 if alt_company_dir.exists():
                     print(f"   ℹ️  Found files in project root: {alt_company_dir}")
                     company_dir = alt_company_dir
                 else:
                     print(f"   ❌ Directory not found: {company_dir}")
-                    print(f"   ❌ Also checked: {alt_company_dir}")
                     return []
 
-            # Get all filing directories
             filing_dirs = sorted([d for d in company_dir.iterdir() if d.is_dir()],
                                key=lambda x: x.name, reverse=True)
-
             print(f"   Found {len(filing_dirs)} filing directories")
 
             filings = []
             for filing_dir in filing_dirs[:num_filings]:
-                # Version 5.x might save as different filename
-                # Try common names
                 for filename in ["full-submission.txt", "primary-document.html", "filing-details.xml"]:
                     file_path = filing_dir / filename
                     if file_path.exists():
@@ -108,11 +201,9 @@ class EdgarFinancialAgent:
                         filings.append(file_path)
                         break
                 else:
-                    # List what's actually in the directory
                     files_in_dir = list(filing_dir.glob("*"))
                     if files_in_dir:
                         print(f"   📁 Files in {filing_dir.name}: {[f.name for f in files_in_dir[:5]]}")
-                        # Just use the first file we find
                         filings.append(files_in_dir[0])
 
             return filings
@@ -123,61 +214,92 @@ class EdgarFinancialAgent:
             traceback.print_exc()
             return []
 
-    def extract_financial_metrics(self, filing_path: Path) -> Dict:
-        """Extract key financial metrics from filing using Claude"""
+    def extract_financial_metrics(self, filing_path: Path, max_chars: int = 150000) -> Dict:
+        """Extract key financial metrics from filing using Claude."""
+        import time as _time
         try:
-            content = filing_path.read_text(encoding='utf-8', errors='ignore')
+            raw = filing_path.read_text(encoding='utf-8', errors='ignore')
 
-            # Truncate to manageable size to avoid rate limits
-            # First 30k chars usually contain the key financial data
-            content = content[:30000]
+            # Strip HTML tags to get plain text
+            import re as _re
+            plain = _re.sub(r'<[^>]+>', ' ', raw)
+            plain = _re.sub(r'&[a-zA-Z0-9#]+;', ' ', plain)
+            plain = _re.sub(r'\s{3,}', '\n', plain).strip()
+
+            content = plain[:max_chars]
 
             extraction_prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are a financial analyst extracting key metrics from SEC filings.
-Extract the following information in JSON format:
+                ("system", """You are a financial analyst extracting data from an SEC filing (10-K or 10-Q).
+Extract ALL of the following fields and return ONLY a valid JSON object — no markdown, no explanation.
 
-**Income Statement:**
-- filing_period: The period covered (e.g., "2024-Q1", "2023")
-- filing_date: Date of filing (YYYY-MM-DD)
-- revenue: Total revenue/sales (in millions, numeric only)
-- operating_income: Operating income (in millions, numeric only)
-- net_income: Net income (in millions, numeric only)
+All dollar amounts must be in MILLIONS USD (numeric, no commas or symbols). Use null for any field not found.
 
-**Balance Sheet:**
-- total_assets: Total assets (in millions, numeric only)
-- total_liabilities: Total liabilities (in millions, numeric only)
-- stockholders_equity: Stockholders equity (in millions, numeric only)
-- cash_and_equivalents: Cash and cash equivalents (in millions, numeric only)
+--- FILING META ---
+filing_period: fiscal year or quarter string (e.g. "FY2024", "Q3 2024")
+filing_date: period end date as YYYY-MM-DD
+filing_type: "10-K" or "10-Q"
 
-**Cash Flow Statement:**
-- operating_cash_flow: Cash from operating activities (in millions, numeric only)
-- investing_cash_flow: Cash from investing activities (in millions, numeric only)
-- financing_cash_flow: Cash from financing activities (in millions, numeric only)
+--- INCOME STATEMENT ---
+revenue: total revenues / net revenues
+gross_profit: revenue minus cost of goods sold
+operating_income: income from operations
+ebitda: earnings before interest, taxes, depreciation, and amortization (calculate if not stated)
+net_income: net income / net earnings
+eps_basic: basic earnings per share (numeric)
+eps_diluted: diluted earnings per share (numeric)
 
-**Additional:**
-- key_risks: List of top 3-5 risk factors mentioned
-- business_summary: 2-3 sentence summary of the business
+--- BALANCE SHEET ---
+cash_and_equivalents: cash and cash equivalents
+short_term_investments: short-term marketable securities / investments
+total_current_assets: total current assets
+total_assets: total assets
+total_current_liabilities: total current liabilities
+long_term_debt: long-term debt / notes payable
+total_liabilities: total liabilities
+stockholders_equity: total stockholders equity / shareholders equity
+shares_outstanding: diluted shares outstanding in millions
 
-Return valid JSON only. For all numeric values, provide just the number (no $ or M). If a value is not found, use null."""),
-                ("user", "Extract financial metrics from this SEC filing:\n\n{filing_content}")
+--- CASH FLOW STATEMENT ---
+operating_cash_flow: net cash provided by / used in operating activities
+capital_expenditures: purchases of property plant and equipment (positive number)
+free_cash_flow: operating_cash_flow minus capital_expenditures (calculate if not stated)
+investing_cash_flow: net cash used in / provided by investing activities
+financing_cash_flow: net cash used in / provided by financing activities
+dividends_paid: dividends paid to shareholders (positive number, null if none)
+share_repurchases: repurchase of common stock (positive number, null if none)
+
+--- QUALITATIVE ---
+key_risks: list of up to 5 short risk strings (each under 15 words)
+business_summary: one sentence describing what the company does
+
+Return ONLY the JSON object."""),
+                ("user", "SEC filing:\n\n{filing_content}")
             ])
 
             chain = extraction_prompt | self.llm
-            response = chain.invoke({"filing_content": content})
 
-            # Parse the response
-            import json
-            # Extract JSON from markdown code blocks if present
-            response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
+            # Retry with exponential backoff on 429 rate-limit errors
+            response = None
+            for attempt in range(4):
+                try:
+                    response = chain.invoke({"filing_content": content})
+                    break
+                except Exception as llm_err:
+                    err_str = str(llm_err)
+                    if "429" in err_str or "rate_limit" in err_str:
+                        wait = 20 * (2 ** attempt)  # 20s, 40s, 80s, 160s
+                        print(f"   ⏳ Rate limited — waiting {wait}s before retry (attempt {attempt+1}/4)...")
+                        _time.sleep(wait)
+                    else:
+                        raise
+            if response is None:
+                raise ValueError("All retry attempts failed due to rate limiting")
 
-            metrics = json.loads(response_text)
+            metrics = robust_parse_json(response.content, {})
+            if not metrics:
+                raise ValueError("LLM returned empty/non-JSON response")
             metrics["source_file"] = str(filing_path)
             metrics["extracted_at"] = datetime.now().isoformat()
-
             return metrics
 
         except Exception as e:
@@ -188,10 +310,18 @@ Return valid JSON only. For all numeric values, provide just the number (no $ or
                 "extracted_at": datetime.now().isoformat()
             }
 
-    def get_company_financials(self, ticker: str, filing_types: List[str] = None) -> Dict:
-        """Get comprehensive financial data for a company"""
+    def get_company_financials(self, ticker: str, filing_types: List[str] = None,
+                               peer_mode: bool = False) -> Dict:
+        """Get comprehensive financial data for a company.
+
+        peer_mode=True uses a smaller context slice (60k chars) to reduce token
+        usage when processing multiple peer companies back-to-back.
+        """
         if filing_types is None:
             filing_types = ["10-K", "10-Q"]
+
+        # Peer companies: only pull 10-K (latest annual), smaller slice
+        max_chars = 60000 if peer_mode else 150000
 
         canonical = self._normalise_ticker(ticker)
         if canonical is None:
@@ -212,7 +342,7 @@ Return valid JSON only. For all numeric values, provide just the number (no $ or
 
             for filing_path in filings:
                 print(f"   Processing {filing_type} from {filing_path.parent.name}...")
-                metrics = self.extract_financial_metrics(filing_path)
+                metrics = self.extract_financial_metrics(filing_path, max_chars=max_chars)
                 metrics["filing_type"] = filing_type
 
                 # Log what we extracted
@@ -251,13 +381,8 @@ Provide a concise analysis in JSON format with:
             response = chain.invoke({"financial_data": json.dumps(financials, indent=2)})
 
             # Parse response
-            response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            return json.loads(response_text)
+            result = robust_parse_json(response.content, {"overall_rating": "unknown"})
+            return result
 
         except Exception as e:
             print(f"Error analyzing financial health: {e}")

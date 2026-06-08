@@ -1,8 +1,8 @@
 import httpx
 from bs4 import BeautifulSoup
 from typing import Dict, Optional
-from langchain_anthropic import ChatAnthropic
-from langchain.prompts import ChatPromptTemplate
+from ..llm_factory import get_llm
+from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
 
@@ -11,12 +11,7 @@ class WebScraperAgent:
     """Agent for scraping company information from public websites"""
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
-            api_key=api_key,
-            temperature=0
-        )
+        self.llm = get_llm(temperature=0)
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
