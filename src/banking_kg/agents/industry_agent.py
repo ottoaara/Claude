@@ -227,7 +227,7 @@ class IndustryAgent:
         def _invoke():
             return self.agent.invoke(
                 {"messages": [HumanMessage(content=user_message)]},
-                config={"recursion_limit": 8},
+                config={"recursion_limit": 5},
             )
 
         try:
@@ -249,7 +249,6 @@ class IndustryAgent:
             parsed = robust_parse_json(output, {})
         except Exception as e:
             print(f"❌ IndustryAgent error: {e}")
-            import traceback; traceback.print_exc()
             parsed = {}
 
         return {

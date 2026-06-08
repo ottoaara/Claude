@@ -450,9 +450,9 @@ class BankingResearchOrchestrator:
         import threading
         import time as _t
 
-        # Semaphore limits concurrent live EDGAR calls to 2 — respects SEC rate limit
+        # Semaphore limits concurrent live EDGAR calls to 3 — respects SEC rate limit
         # while still running cache hits instantly in parallel.
-        edgar_semaphore = threading.Semaphore(2)
+        edgar_semaphore = threading.Semaphore(3)
         edgar_call_index = [0]  # mutable int for stagger delay tracking
         index_lock = threading.Lock()
 
@@ -497,8 +497,8 @@ class BankingResearchOrchestrator:
                     idx = edgar_call_index[0]
                     edgar_call_index[0] += 1
                 if idx > 0:
-                    print(f"   ⏳ Staggering EDGAR call for {name} by {idx * 3}s…")
-                    _t.sleep(idx * 3)
+                    print(f"   ⏳ Staggering EDGAR call for {name} by {idx}s…")
+                    _t.sleep(idx)
 
                 print(f"   → EDGAR fetch: {name} ({canonical})")
                 try:

@@ -506,76 +506,628 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     SLIDE 13 — SYSTEM ARCHITECTURE
+     SLIDE 13 — SYSTEM ARCHITECTURE DIAGRAM
 ══════════════════════════════════════ -->
-<div class="slide layout-full">
-  <div class="sh">
-    <div class="tag">Architecture</div>
-    <h2>System Layers</h2>
+<div class="slide layout-full" style="padding:40px 60px;">
+  <div class="sh" style="margin-bottom:16px;">
+    <div class="tag">Architecture Diagram</div>
+    <h2>Full System Architecture</h2>
   </div>
-  <div style="display:flex; flex-direction:column; gap:8px; flex:1;">
-    <!-- Browser -->
-    <div style="background:#FFF3F3;border:2px solid #D71E28;border-radius:8px;padding:12px 16px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:var(--red);margin-bottom:6px;">Browser — localhost:3000</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <span class="chip chip-red">8-Tab Dashboard</span>
-        <span class="chip chip-red">RM Portfolio /rm</span>
-        <span class="chip chip-red">Meeting Brief Modal</span>
-        <span class="chip chip-gray">Next.js 16 / React 19 / TypeScript / TailwindCSS</span>
-      </div>
-    </div>
-    <!-- Arrow -->
-    <div style="text-align:center;color:#CCC;font-size:20px;">↓ HTTP fetch ↓</div>
-    <!-- API -->
-    <div style="background:#FFFDE7;border:2px solid #C8A951;border-radius:8px;padding:12px 16px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:#B8860B;margin-bottom:6px;">FastAPI Backend — localhost:8000</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <span class="chip chip-gold">26 REST Endpoints</span>
-        <span class="chip chip-gold">X-API-Key Auth</span>
-        <span class="chip chip-gold">Async Background Jobs</span>
-        <span class="chip chip-gold">PDF Streaming</span>
-        <span class="chip chip-gray">OpenAPI / Swagger at /docs</span>
-      </div>
-    </div>
-    <div style="text-align:center;color:#CCC;font-size:20px;">↓ triggers pipeline ↓</div>
-    <!-- Pipeline -->
-    <div style="background:#E8F5E9;border:2px solid #2e7d32;border-radius:8px;padding:12px 16px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:#2e7d32;margin-bottom:6px;">LangGraph Orchestrator — 9-node sequential pipeline</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="chip chip-gray">WebScraper</span><span class="chip chip-gray">EdgarAgent</span><span class="chip chip-gray">NewsAgent</span><span class="chip chip-gray">NewsClassifier</span><span class="chip chip-gray">ProductAgent</span><span class="chip chip-gray">IndustryAgent</span><span class="chip chip-gray">OfficerAgent</span><span class="chip chip-gray">TemporalDimension</span><span class="chip chip-gray">Neo4j Populate</span>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;">
-      <div style="text-align:center;color:#CCC;font-size:20px;flex:1;">↓ read/write ↓</div>
-      <div style="text-align:center;color:#CCC;font-size:20px;flex:1;">↓ LLM calls ↓</div>
-      <div style="text-align:center;color:#CCC;font-size:20px;flex:1;">↓ web search ↓</div>
-      <div style="text-align:center;color:#CCC;font-size:20px;flex:1;">↓ SEC filings ↓</div>
-    </div>
-    <!-- Bottom row -->
-    <div style="display:flex;gap:8px;">
-      <div style="flex:1;background:#F3E5F5;border:2px solid #6a1b9a;border-radius:8px;padding:10px 14px;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#6a1b9a;margin-bottom:4px;">Neo4j Graph DB</div>
-        <div style="font-size:12px;color:var(--mid);">bolt://localhost:7687 · 9 node types · bolt auth</div>
-      </div>
-      <div style="flex:1;background:#FFF9C4;border:2px solid #f57f17;border-radius:8px;padding:10px 14px;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#f57f17;margin-bottom:4px;">LLM Factory</div>
-        <div style="font-size:12px;color:var(--mid);">LLM_PROVIDER=anthropic → Claude Sonnet 4.6<br>LLM_PROVIDER=ollama → llama3:latest (local)</div>
-      </div>
-      <div style="flex:1;background:#E0F7FA;border:2px solid #006064;border-radius:8px;padding:10px 14px;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#006064;margin-bottom:4px;">External Sources</div>
-        <div style="font-size:12px;color:var(--mid);">SEC EDGAR · DuckDuckGo · yfinance · Company websites</div>
-      </div>
-      <div style="flex:1;background:#E3F2FD;border:2px solid #1565c0;border-radius:8px;padding:10px 14px;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#1565c0;margin-bottom:4px;">Disk Cache</div>
-        <div style="font-size:12px;color:var(--mid);">sec-edgar-filings/ · 55+ tickers pre-seeded · bypass EDGAR HTTP</div>
-      </div>
-    </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+  <svg viewBox="0 0 960 520" width="100%" height="100%" style="max-height:440px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#999"/>
+      </marker>
+      <marker id="arrb" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#D71E28"/>
+      </marker>
+    </defs>
+
+    <!-- ── BROWSER ── -->
+    <rect x="10" y="10" width="220" height="130" rx="8" fill="#FFF3F3" stroke="#D71E28" stroke-width="2"/>
+    <text x="20" y="28" font-size="9" font-weight="700" fill="#D71E28" letter-spacing="1.5" text-transform="uppercase">BROWSER  localhost:3000</text>
+    <rect x="20" y="34" width="100" height="22" rx="4" fill="#D71E28"/>
+    <text x="70" y="49" font-size="10" font-weight="700" fill="white" text-anchor="middle">8-Tab Dashboard</text>
+    <rect x="128" y="34" width="94" height="22" rx="4" fill="#D71E28"/>
+    <text x="175" y="49" font-size="10" font-weight="700" fill="white" text-anchor="middle">RM Portfolio /rm</text>
+    <rect x="20" y="62" width="110" height="22" rx="4" fill="#D71E28"/>
+    <text x="75" y="77" font-size="10" font-weight="700" fill="white" text-anchor="middle">Meeting Brief Modal</text>
+    <rect x="138" y="62" width="84" height="22" rx="4" fill="#ffeaea" stroke="#D71E28" stroke-width="1"/>
+    <text x="180" y="77" font-size="9" fill="#D71E28" text-anchor="middle">PDF Export</text>
+    <text x="120" y="112" font-size="10" fill="#888" text-anchor="middle">Next.js 16 · React 19 · TypeScript</text>
+    <text x="120" y="128" font-size="10" fill="#888" text-anchor="middle">TailwindCSS · App Router</text>
+
+    <!-- ── FASTAPI ── -->
+    <rect x="10" y="175" width="220" height="110" rx="8" fill="#FFFDE7" stroke="#C8A951" stroke-width="2"/>
+    <text x="20" y="193" font-size="9" font-weight="700" fill="#B8860B" letter-spacing="1.5">FASTAPI BACKEND  :8000</text>
+    <rect x="20" y="199" width="88" height="22" rx="4" fill="#C8A951"/>
+    <text x="64" y="214" font-size="10" font-weight="700" fill="white" text-anchor="middle">26 Endpoints</text>
+    <rect x="116" y="199" width="106" height="22" rx="4" fill="#C8A951"/>
+    <text x="169" y="214" font-size="10" font-weight="700" fill="white" text-anchor="middle">Async BG Jobs</text>
+    <rect x="20" y="227" width="78" height="22" rx="4" fill="#fff8dc" stroke="#C8A951" stroke-width="1"/>
+    <text x="59" y="242" font-size="9" fill="#B8860B" text-anchor="middle">X-API-Key Auth</text>
+    <rect x="106" y="227" width="78" height="22" rx="4" fill="#fff8dc" stroke="#C8A951" stroke-width="1"/>
+    <text x="145" y="242" font-size="9" fill="#B8860B" text-anchor="middle">PDF Streaming</text>
+    <rect x="192" y="227" width="30" height="22" rx="4" fill="#fff8dc" stroke="#C8A951" stroke-width="1"/>
+    <text x="207" y="242" font-size="9" fill="#B8860B" text-anchor="middle">/docs</text>
+    <text x="120" y="272" font-size="10" fill="#888" text-anchor="middle">FastAPI · Python 3.10+ · Uvicorn</text>
+
+    <!-- ── LANGGRAPH ── -->
+    <rect x="10" y="320" width="220" height="130" rx="8" fill="#E8F5E9" stroke="#2e7d32" stroke-width="2"/>
+    <text x="20" y="338" font-size="9" font-weight="700" fill="#2e7d32" letter-spacing="1.5">LANGGRAPH PIPELINE</text>
+    <text x="120" y="353" font-size="10" fill="#555" text-anchor="middle">9-node sequential workflow</text>
+    <!-- 9 nodes as small pills -->
+    <rect x="18" y="358" width="68" height="16" rx="3" fill="#2e7d32"/>
+    <text x="52" y="369" font-size="8.5" fill="white" text-anchor="middle">WebScraper</text>
+    <rect x="92" y="358" width="68" height="16" rx="3" fill="#2e7d32"/>
+    <text x="126" y="369" font-size="8.5" fill="white" text-anchor="middle">EdgarAgent</text>
+    <rect x="166" y="358" width="56" height="16" rx="3" fill="#2e7d32"/>
+    <text x="194" y="369" font-size="8.5" fill="white" text-anchor="middle">NewsAgent</text>
+    <rect x="18" y="380" width="72" height="16" rx="3" fill="#1b5e20"/>
+    <text x="54" y="391" font-size="8.5" fill="white" text-anchor="middle">NewsClassifier</text>
+    <rect x="96" y="380" width="72" height="16" rx="3" fill="#1b5e20"/>
+    <text x="132" y="391" font-size="8.5" fill="white" text-anchor="middle">ProductAgent</text>
+    <rect x="174" y="380" width="48" height="16" rx="3" fill="#1b5e20"/>
+    <text x="198" y="391" font-size="8.5" fill="white" text-anchor="middle">Industry</text>
+    <rect x="18" y="402" width="72" height="16" rx="3" fill="#2e7d32"/>
+    <text x="54" y="413" font-size="8.5" fill="white" text-anchor="middle">OfficerAgent</text>
+    <rect x="96" y="402" width="76" height="16" rx="3" fill="#2e7d32"/>
+    <text x="134" y="413" font-size="8.5" fill="white" text-anchor="middle">TemporalScore</text>
+    <rect x="178" y="402" width="44" height="16" rx="3" fill="#2e7d32"/>
+    <text x="200" y="413" font-size="8.5" fill="white" text-anchor="middle">Populate</text>
+    <text x="120" y="438" font-size="10" fill="#888" text-anchor="middle">LangGraph + LangChain · Emits progress events</text>
+
+    <!-- ── NEO4J ── -->
+    <rect x="270" y="320" width="170" height="130" rx="8" fill="#F3E5F5" stroke="#6a1b9a" stroke-width="2"/>
+    <text x="355" y="338" font-size="9" font-weight="700" fill="#6a1b9a" letter-spacing="1.5" text-anchor="middle">NEO4J GRAPH DB</text>
+    <text x="355" y="353" font-size="10" fill="#555" text-anchor="middle">bolt://localhost:7687</text>
+    <text x="355" y="367" font-size="10" fill="#555" text-anchor="middle">9 node types:</text>
+    <!-- node type pills -->
+    <rect x="278" y="373" width="56" height="14" rx="3" fill="#6a1b9a"/>
+    <text x="306" y="383" font-size="8" fill="white" text-anchor="middle">Company</text>
+    <rect x="340" y="373" width="56" height="14" rx="3" fill="#6a1b9a"/>
+    <text x="368" y="383" font-size="8" fill="white" text-anchor="middle">Financial</text>
+    <rect x="278" y="391" width="38" height="14" rx="3" fill="#4a148c"/>
+    <text x="297" y="401" font-size="8" fill="white" text-anchor="middle">News</text>
+    <rect x="322" y="391" width="42" height="14" rx="3" fill="#4a148c"/>
+    <text x="343" y="401" font-size="8" fill="white" text-anchor="middle">Officer</text>
+    <rect x="370" y="391" width="62" height="14" rx="3" fill="#4a148c"/>
+    <text x="401" y="401" font-size="8" fill="white" text-anchor="middle">PeerCompany</text>
+    <rect x="278" y="409" width="50" height="14" rx="3" fill="#6a1b9a"/>
+    <text x="303" y="419" font-size="8" fill="white" text-anchor="middle">Industry</text>
+    <rect x="334" y="409" width="48" height="14" rx="3" fill="#6a1b9a"/>
+    <text x="358" y="419" font-size="8" fill="white" text-anchor="middle">Product</text>
+    <rect x="278" y="427" width="50" height="14" rx="3" fill="#4a148c"/>
+    <text x="303" y="437" font-size="8" fill="white" text-anchor="middle">Activity</text>
+    <rect x="334" y="427" width="38" height="14" rx="3" fill="#4a148c"/>
+    <text x="353" y="437" font-size="8" fill="white" text-anchor="middle">Deal</text>
+
+    <!-- ── LLM FACTORY ── -->
+    <rect x="270" y="175" width="170" height="110" rx="8" fill="#FFF9C4" stroke="#f57f17" stroke-width="2"/>
+    <text x="355" y="193" font-size="9" font-weight="700" fill="#e65100" letter-spacing="1.5" text-anchor="middle">LLM FACTORY</text>
+    <text x="355" y="208" font-size="10" fill="#555" text-anchor="middle">llm_factory.get_llm()</text>
+    <rect x="278" y="214" width="154" height="22" rx="4" fill="#ff6f00"/>
+    <text x="355" y="229" font-size="10" font-weight="700" fill="white" text-anchor="middle">LLM_PROVIDER=anthropic</text>
+    <text x="355" y="248" font-size="10" fill="#888" text-anchor="middle">→ Claude Sonnet 4.6 (Anthropic API)</text>
+    <rect x="278" y="253" width="154" height="22" rx="4" fill="#4e342e"/>
+    <text x="355" y="268" font-size="10" font-weight="700" fill="white" text-anchor="middle">LLM_PROVIDER=ollama</text>
+    <text x="355" y="283" font-size="10" fill="#888" text-anchor="middle">→ llama3:latest (local, no API cost)</text>
+
+    <!-- ── DISK CACHE ── -->
+    <rect x="270" y="10" width="170" height="130" rx="8" fill="#E3F2FD" stroke="#1565c0" stroke-width="2"/>
+    <text x="355" y="28" font-size="9" font-weight="700" fill="#1565c0" letter-spacing="1.5" text-anchor="middle">DISK CACHE</text>
+    <text x="355" y="44" font-size="10" fill="#555" text-anchor="middle">sec-edgar-filings/</text>
+    <rect x="285" y="50" width="140" height="20" rx="4" fill="#1565c0"/>
+    <text x="355" y="63" font-size="9.5" font-weight="700" fill="white" text-anchor="middle">55+ tickers pre-seeded</text>
+    <text x="355" y="83" font-size="10" fill="#555" text-anchor="middle">Skip SEC HTTP call if</text>
+    <text x="355" y="97" font-size="10" fill="#555" text-anchor="middle">filing exists on disk.</text>
+    <text x="355" y="113" font-size="10" fill="#555" text-anchor="middle">Two-layer: disk → Neo4j TTL</text>
+    <text x="355" y="128" font-size="10" fill="#888" text-anchor="middle">sec-edgar-downloader library</text>
+
+    <!-- ── EXTERNAL ── -->
+    <rect x="470" y="10" width="480" height="500" rx="8" fill="#E0F7FA" stroke="#006064" stroke-width="2"/>
+    <text x="710" y="28" font-size="9" font-weight="700" fill="#006064" letter-spacing="1.5" text-anchor="middle">EXTERNAL SERVICES &amp; DATA</text>
+
+    <!-- Claude -->
+    <rect x="484" y="38" width="140" height="70" rx="6" fill="white" stroke="#ff6f00" stroke-width="1.5"/>
+    <text x="554" y="54" font-size="10" font-weight="700" fill="#e65100" text-anchor="middle">Anthropic API</text>
+    <text x="554" y="68" font-size="9.5" fill="#666" text-anchor="middle">Claude Sonnet 4.6</text>
+    <text x="554" y="82" font-size="9" fill="#888" text-anchor="middle">Research synthesis</text>
+    <text x="554" y="95" font-size="9" fill="#888" text-anchor="middle">classification · profiling</text>
+
+    <!-- Ollama -->
+    <rect x="636" y="38" width="140" height="70" rx="6" fill="white" stroke="#4e342e" stroke-width="1.5"/>
+    <text x="706" y="54" font-size="10" font-weight="700" fill="#4e342e" text-anchor="middle">Ollama (local)</text>
+    <text x="706" y="68" font-size="9.5" fill="#666" text-anchor="middle">llama3:latest</text>
+    <text x="706" y="82" font-size="9" fill="#888" text-anchor="middle">Air-gapped option</text>
+    <text x="706" y="95" font-size="9" fill="#888" text-anchor="middle">zero API cost / no egress</text>
+
+    <!-- SEC EDGAR -->
+    <rect x="788" y="38" width="148" height="70" rx="6" fill="white" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="862" y="54" font-size="10" font-weight="700" fill="#1565c0" text-anchor="middle">SEC EDGAR</text>
+    <text x="862" y="68" font-size="9.5" fill="#666" text-anchor="middle">10-K / 10-Q filings</text>
+    <text x="862" y="82" font-size="9" fill="#888" text-anchor="middle">20+ financial fields</text>
+    <text x="862" y="95" font-size="9" fill="#888" text-anchor="middle">disk-cached · free</text>
+
+    <!-- DuckDuckGo -->
+    <rect x="484" y="128" width="140" height="70" rx="6" fill="white" stroke="#e65100" stroke-width="1.5"/>
+    <text x="554" y="144" font-size="10" font-weight="700" fill="#e65100" text-anchor="middle">DuckDuckGo (ddgs)</text>
+    <text x="554" y="158" font-size="9.5" fill="#666" text-anchor="middle">~10 req/min</text>
+    <text x="554" y="172" font-size="9" fill="#888" text-anchor="middle">news · officers</text>
+    <text x="554" y="185" font-size="9" fill="#888" text-anchor="middle">incumbent bank</text>
+
+    <!-- yfinance -->
+    <rect x="636" y="128" width="140" height="70" rx="6" fill="white" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="706" y="144" font-size="10" font-weight="700" fill="#2e7d32" text-anchor="middle">yfinance</text>
+    <text x="706" y="158" font-size="9.5" fill="#666" text-anchor="middle">Stock price history</text>
+    <text x="706" y="172" font-size="9" fill="#888" text-anchor="middle">sparklines around</text>
+    <text x="706" y="185" font-size="9" fill="#888" text-anchor="middle">news event dates</text>
+
+    <!-- Company websites -->
+    <rect x="788" y="128" width="148" height="70" rx="6" fill="white" stroke="#6a1b9a" stroke-width="1.5"/>
+    <text x="862" y="144" font-size="10" font-weight="700" fill="#6a1b9a" text-anchor="middle">Company Websites</text>
+    <text x="862" y="158" font-size="9.5" fill="#666" text-anchor="middle">BeautifulSoup scrape</text>
+    <text x="862" y="172" font-size="9" fill="#888" text-anchor="middle">sector · headcount</text>
+    <text x="862" y="185" font-size="9" fill="#888" text-anchor="middle">HQ · description</text>
+
+    <!-- WF Officers -->
+    <rect x="484" y="218" width="452" height="60" rx="6" fill="white" stroke="#D71E28" stroke-width="1.5"/>
+    <text x="710" y="238" font-size="10" font-weight="700" fill="#D71E28" text-anchor="middle">WF Officer Registry (bank_officers.py)</text>
+    <text x="710" y="254" font-size="9.5" fill="#666" text-anchor="middle">17 WF board members / executives seeded with board seats + education — cross-referenced against every client research run</text>
+    <text x="710" y="269" font-size="9" fill="#888" text-anchor="middle">Board Interlock Map · Alumni Network · Warm Entry Points</text>
+
+    <!-- reportlab -->
+    <rect x="484" y="298" width="210" height="55" rx="6" fill="white" stroke="#C8A951" stroke-width="1.5"/>
+    <text x="589" y="318" font-size="10" font-weight="700" fill="#B8860B" text-anchor="middle">reportlab 4.x</text>
+    <text x="589" y="333" font-size="9.5" fill="#666" text-anchor="middle">A4 PDF intelligence brief</text>
+    <text x="589" y="346" font-size="9" fill="#888" text-anchor="middle">streamed as application/pdf</text>
+
+    <!-- Neo4j TTL label -->
+    <rect x="706" y="298" width="230" height="55" rx="6" fill="white" stroke="#999" stroke-width="1.5"/>
+    <text x="821" y="318" font-size="10" font-weight="700" fill="#555" text-anchor="middle">Neo4j TTL Policy</text>
+    <text x="821" y="333" font-size="9.5" fill="#666" text-anchor="middle">Financial 30d · News 7d · Company 7d</text>
+    <text x="821" y="346" font-size="9" fill="#888" text-anchor="middle">NAICS 180d · Officers 120d · Incumbent 365d</text>
+
+    <!-- Section labels bottom -->
+    <text x="710" y="400" font-size="10" fill="#555" text-anchor="middle" font-weight="600">Covenant Watch Thresholds: D/EBITDA &gt; 4.0x · Coverage &lt; 2.5x · Debt/Equity &gt; 3.0x · ROA &lt; 2% · Net Margin &lt; 0%</text>
+    <text x="710" y="418" font-size="10" fill="#888" text-anchor="middle">Relevance scoring: 60% recency + 40% content · Prune below 0.3 · Freshness labels: fresh ≥0.8, recent ≥0.5, aged ≥0.3, stale &lt;0.3</text>
+    <text x="710" y="436" font-size="10" fill="#888" text-anchor="middle">EDGAR peer stagger: 1s per concurrent call (Semaphore 3) · IndustryAgent recursion_limit: 5 · 60s hard timeout</text>
+
+    <!-- ── ARROWS ── -->
+    <!-- Browser ↔ FastAPI -->
+    <line x1="120" y1="140" x2="120" y2="175" stroke="#999" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="125" y="163" font-size="8.5" fill="#999">HTTP fetch</text>
+    <!-- FastAPI ↔ LangGraph -->
+    <line x1="120" y1="285" x2="120" y2="320" stroke="#999" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="125" y="308" font-size="8.5" fill="#999">triggers pipeline</text>
+    <!-- FastAPI ↔ LLM Factory -->
+    <line x1="230" y1="230" x2="270" y2="230" stroke="#999" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="240" y="225" font-size="8" fill="#999">on-demand</text>
+    <!-- LangGraph ↔ Neo4j -->
+    <line x1="230" y1="385" x2="270" y2="385" stroke="#999" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="238" y="380" font-size="8" fill="#999">read/write</text>
+    <!-- LangGraph ↔ Disk Cache -->
+    <line x1="120" y1="320" x2="355" y2="140" stroke="#1565c0" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+    <!-- LLM Factory ↔ External (Claude) -->
+    <line x1="440" y1="220" x2="470" y2="73" stroke="#ff6f00" stroke-width="1.5" marker-end="url(#arr)"/>
+    <line x1="440" y1="240" x2="470" y2="163" stroke="#e65100" stroke-width="1.5" marker-end="url(#arr)"/>
+    <!-- FastAPI ↔ Neo4j -->
+    <line x1="230" y1="200" x2="270" y2="350" stroke="#999" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+  </svg>
   </div>
 </div>
 
 <!-- ══════════════════════════════════════
-     SLIDE 14 — TECH STACK TABLE
+     SLIDE 14 — AGENT FLOW DIAGRAM
 ══════════════════════════════════════ -->
+<div class="slide layout-full" style="padding:40px 60px;">
+  <div class="sh" style="margin-bottom:16px;">
+    <div class="tag">Agent Flow Diagram</div>
+    <h2>LangGraph 9-Node Research Pipeline</h2>
+    <p>Each node is a method on BankingResearchOrchestrator. Emits SSE progress events after each node — dashboard polls every 2s.</p>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+  <svg viewBox="0 0 900 400" width="100%" height="100%" style="max-height:340px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#D71E28"/>
+      </marker>
+      <marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#555"/>
+      </marker>
+    </defs>
+
+    <!-- START bubble -->
+    <ellipse cx="64" cy="200" rx="56" ry="28" fill="#D71E28"/>
+    <text x="64" y="196" font-size="10" font-weight="700" fill="white" text-anchor="middle">research_</text>
+    <text x="64" y="209" font-size="10" font-weight="700" fill="white" text-anchor="middle">company()</text>
+
+    <!-- Arrow → N1 -->
+    <line x1="120" y1="200" x2="148" y2="200" stroke="#D71E28" stroke-width="2" marker-end="url(#a2)"/>
+
+    <!-- NODE ROW 1 (nodes 1-5 horizontal) -->
+    <!-- N1 -->
+    <rect x="150" y="178" width="90" height="44" rx="6" fill="#E3F2FD" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="195" y="196" font-size="8.5" font-weight="700" fill="#1565c0" text-anchor="middle">N1</text>
+    <text x="195" y="208" font-size="9" fill="#333" text-anchor="middle">WebScraper</text>
+    <text x="195" y="219" font-size="8" fill="#666" text-anchor="middle">company website</text>
+
+    <line x1="240" y1="200" x2="258" y2="200" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N2 -->
+    <rect x="260" y="178" width="90" height="44" rx="6" fill="#E3F2FD" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="305" y="196" font-size="8.5" font-weight="700" fill="#1565c0" text-anchor="middle">N2</text>
+    <text x="305" y="208" font-size="9" fill="#333" text-anchor="middle">EdgarAgent</text>
+    <text x="305" y="219" font-size="8" fill="#666" text-anchor="middle">10-K / 10-Q · cache</text>
+
+    <line x1="350" y1="200" x2="368" y2="200" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N3 -->
+    <rect x="370" y="178" width="90" height="44" rx="6" fill="#FFF3E0" stroke="#e65100" stroke-width="1.5"/>
+    <text x="415" y="196" font-size="8.5" font-weight="700" fill="#e65100" text-anchor="middle">N3</text>
+    <text x="415" y="208" font-size="9" fill="#333" text-anchor="middle">NewsAgent</text>
+    <text x="415" y="219" font-size="8" fill="#666" text-anchor="middle">DDG + LLM classify</text>
+
+    <line x1="460" y1="200" x2="478" y2="200" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N4 -->
+    <rect x="480" y="178" width="90" height="44" rx="6" fill="#E8F5E9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="525" y="196" font-size="8.5" font-weight="700" fill="#2e7d32" text-anchor="middle">N4</text>
+    <text x="525" y="208" font-size="9" fill="#333" text-anchor="middle">ProductAgent</text>
+    <text x="525" y="219" font-size="8" fill="#666" text-anchor="middle">LLM → portfolio</text>
+
+    <line x1="570" y1="200" x2="588" y2="200" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N5 -->
+    <rect x="590" y="178" width="90" height="44" rx="6" fill="#F3E5F5" stroke="#6a1b9a" stroke-width="1.5"/>
+    <text x="635" y="196" font-size="8.5" font-weight="700" fill="#6a1b9a" text-anchor="middle">N5</text>
+    <text x="635" y="208" font-size="9" fill="#333" text-anchor="middle">IndustryAgent</text>
+    <text x="635" y="219" font-size="8" fill="#666" text-anchor="middle">NAICS · DDG peers</text>
+
+    <!-- Arrow down from N5 to N6 -->
+    <line x1="635" y1="222" x2="635" y2="258" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- NODE ROW 2 (nodes 6-9 right-to-left, bottom) -->
+    <!-- N6 -->
+    <rect x="590" y="260" width="90" height="44" rx="6" fill="#E3F2FD" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="635" y="278" font-size="8.5" font-weight="700" fill="#1565c0" text-anchor="middle">N6</text>
+    <text x="635" y="290" font-size="9" fill="#333" text-anchor="middle">PeerFinancials</text>
+    <text x="635" y="301" font-size="8" fill="#666" text-anchor="middle">EDGAR per peer · ‖ pool</text>
+
+    <line x1="590" y1="282" x2="572" y2="282" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N7 -->
+    <rect x="480" y="260" width="90" height="44" rx="6" fill="#FCE4EC" stroke="#880e4f" stroke-width="1.5"/>
+    <text x="525" y="278" font-size="8.5" font-weight="700" fill="#880e4f" text-anchor="middle">N7</text>
+    <text x="525" y="290" font-size="9" fill="#333" text-anchor="middle">OfficerAgent</text>
+    <text x="525" y="301" font-size="8" fill="#666" text-anchor="middle">4 DDG searches/officer</text>
+
+    <line x1="480" y1="282" x2="462" y2="282" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N8 -->
+    <rect x="370" y="260" width="90" height="44" rx="6" fill="#FFF8E1" stroke="#f9a825" stroke-width="1.5"/>
+    <text x="415" y="278" font-size="8.5" font-weight="700" fill="#b8860b" text-anchor="middle">N8</text>
+    <text x="415" y="290" font-size="9" fill="#333" text-anchor="middle">TemporalScore</text>
+    <text x="415" y="301" font-size="8" fill="#666" text-anchor="middle">decay · prune &lt;0.3</text>
+
+    <line x1="370" y1="282" x2="352" y2="282" stroke="#555" stroke-width="1.5" marker-end="url(#a3)"/>
+
+    <!-- N9 -->
+    <rect x="260" y="260" width="90" height="44" rx="6" fill="#E0F2F1" stroke="#00695c" stroke-width="1.5"/>
+    <text x="305" y="278" font-size="8.5" font-weight="700" fill="#00695c" text-anchor="middle">N9</text>
+    <text x="305" y="290" font-size="9" fill="#333" text-anchor="middle">Populate Graph</text>
+    <text x="305" y="301" font-size="8" fill="#666" text-anchor="middle">Neo4j MERGE + summary</text>
+
+    <!-- Arrow from N9 to DONE -->
+    <line x1="260" y1="282" x2="228" y2="282" stroke="#2e7d32" stroke-width="2" marker-end="url(#a3)"/>
+
+    <!-- DONE bubble -->
+    <ellipse cx="180" cy="282" rx="46" ry="22" fill="#2e7d32"/>
+    <text x="180" y="278" font-size="10" font-weight="700" fill="white" text-anchor="middle">DONE</text>
+    <text x="180" y="291" font-size="9" fill="white" text-anchor="middle">result → API</text>
+
+    <!-- Side annotations -->
+    <!-- Cache bypass annotation on N2 -->
+    <rect x="263" y="148" width="84" height="26" rx="4" fill="#E3F2FD" stroke="#1565c0" stroke-width="1"/>
+    <text x="305" y="160" font-size="8" fill="#1565c0" text-anchor="middle">disk cache first</text>
+    <text x="305" y="171" font-size="8" fill="#1565c0" text-anchor="middle">55+ tickers</text>
+    <line x1="305" y1="174" x2="305" y2="178" stroke="#1565c0" stroke-width="1" stroke-dasharray="2,2"/>
+
+    <!-- Cache bypass on N5 -->
+    <rect x="593" y="110" width="84" height="26" rx="4" fill="#F3E5F5" stroke="#6a1b9a" stroke-width="1"/>
+    <text x="635" y="122" font-size="8" fill="#6a1b9a" text-anchor="middle">NAICS cache 180d</text>
+    <text x="635" y="133" font-size="8" fill="#6a1b9a" text-anchor="middle">peer cache 180d</text>
+    <line x1="635" y1="136" x2="635" y2="178" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="2,2"/>
+
+    <!-- semaphore note on N6 -->
+    <rect x="593" y="316" width="84" height="26" rx="4" fill="#E3F2FD" stroke="#1565c0" stroke-width="1"/>
+    <text x="635" y="328" font-size="8" fill="#1565c0" text-anchor="middle">Semaphore(3)</text>
+    <text x="635" y="339" font-size="8" fill="#1565c0" text-anchor="middle">1s stagger/call</text>
+    <line x1="635" y1="316" x2="635" y2="304" stroke="#1565c0" stroke-width="1" stroke-dasharray="2,2"/>
+
+    <!-- Progress events indicator -->
+    <rect x="750" y="170" width="140" height="140" rx="8" fill="#FFFDE7" stroke="#C8A951" stroke-width="1.5"/>
+    <text x="820" y="188" font-size="9" font-weight="700" fill="#B8860B" text-anchor="middle">Progress Events</text>
+    <text x="820" y="203" font-size="8" fill="#666" text-anchor="middle">POST /research/start</text>
+    <text x="820" y="217" font-size="8" fill="#666" text-anchor="middle">→ job_id returned</text>
+    <text x="820" y="233" font-size="8" fill="#888" text-anchor="middle">GET /research/status</text>
+    <text x="820" y="246" font-size="8" fill="#888" text-anchor="middle">/{job_id} ← poll 2s</text>
+    <text x="820" y="262" font-size="8" fill="#888" text-anchor="middle">completed_steps[]</text>
+    <text x="820" y="275" font-size="8" fill="#888" text-anchor="middle">drives frontend bar</text>
+    <line x1="750" y1="240" x2="680" y2="200" stroke="#C8A951" stroke-width="1" stroke-dasharray="4,3"/>
+
+    <!-- Legend -->
+    <rect x="750" y="340" width="140" height="50" rx="6" fill="#f5f5f0" stroke="#ddd" stroke-width="1"/>
+    <rect x="760" y="352" width="10" height="10" rx="2" fill="#1565c0" opacity="0.7"/>
+    <text x="776" y="361" font-size="8" fill="#555">EDGAR / financial</text>
+    <rect x="760" y="368" width="10" height="10" rx="2" fill="#880e4f" opacity="0.7"/>
+    <text x="776" y="377" font-size="8" fill="#555">LLM-heavy node</text>
+    <rect x="840" y="352" width="10" height="10" rx="2" fill="#e65100" opacity="0.7"/>
+    <text x="856" y="361" font-size="8" fill="#555">DDG search</text>
+    <rect x="840" y="368" width="10" height="10" rx="2" fill="#00695c" opacity="0.7"/>
+    <text x="856" y="377" font-size="8" fill="#555">storage</text>
+
+    <!-- Timeout note -->
+    <text x="450" y="368" font-size="8.5" fill="#888" text-anchor="middle">IndustryAgent: 60s hard timeout · recursion_limit: 5 · OfficerAgent: 4 DDG searches · ~30–60s per officer</text>
+  </svg>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SLIDE 15 — NEO4J GRAPH SCHEMA DIAGRAM
+══════════════════════════════════════ -->
+<div class="slide layout-full" style="padding:40px 60px;">
+  <div class="sh" style="margin-bottom:16px;">
+    <div class="tag">Data Model Diagram</div>
+    <h2>Neo4j Knowledge Graph Schema</h2>
+    <p>9 node types · 9 relationship types · Enables multi-hop traversal for board interlocks, peer chains, and officer networks impossible in relational databases.</p>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:32px;">
+  <svg viewBox="0 0 680 400" width="62%" height="100%" style="max-height:340px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="ra" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L7,3 z" fill="#888"/>
+      </marker>
+    </defs>
+
+    <!-- Central Company node -->
+    <circle cx="340" cy="200" r="44" fill="#D71E28" stroke="white" stroke-width="2"/>
+    <text x="340" y="196" font-size="12" font-weight="700" fill="white" text-anchor="middle">Company</text>
+    <text x="340" y="211" font-size="9" fill="rgba(255,255,255,0.8)" text-anchor="middle">name · ticker</text>
+    <text x="340" y="222" font-size="9" fill="rgba(255,255,255,0.8)" text-anchor="middle">sector · HQ</text>
+
+    <!-- Financial node -->
+    <circle cx="140" cy="100" r="38" fill="#1565c0" stroke="white" stroke-width="2"/>
+    <text x="140" y="96" font-size="11" font-weight="700" fill="white" text-anchor="middle">Financial</text>
+    <text x="140" y="109" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">revenue · EBITDA</text>
+    <text x="140" y="120" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">assets · debt · FCF</text>
+    <!-- Company → Financial -->
+    <line x1="302" y1="172" x2="177" y2="126" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="208" y="138" width="64" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="240" y="148" font-size="8" fill="#555" text-anchor="middle">HAS_FILING</text>
+
+    <!-- News node -->
+    <circle cx="540" cy="100" r="36" fill="#e65100" stroke="white" stroke-width="2"/>
+    <text x="540" y="97" font-size="11" font-weight="700" fill="white" text-anchor="middle">News</text>
+    <text x="540" y="109" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">sentiment · severity</text>
+    <text x="540" y="120" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">is_material · date</text>
+    <!-- Company → News -->
+    <line x1="378" y1="172" x2="505" y2="126" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="413" y="138" width="70" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="448" y="148" font-size="8" fill="#555" text-anchor="middle">MENTIONED_IN</text>
+
+    <!-- Product node -->
+    <circle cx="80" cy="230" r="36" fill="#2e7d32" stroke="white" stroke-width="2"/>
+    <text x="80" y="228" font-size="11" font-weight="700" fill="white" text-anchor="middle">Product</text>
+    <text x="80" y="240" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">name · category</text>
+    <!-- Company → Product -->
+    <line x1="298" y1="206" x2="115" y2="228" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="168" y="209" width="48" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="192" y="219" font-size="8" fill="#555" text-anchor="middle">OFFERS</text>
+
+    <!-- Industry node -->
+    <circle cx="80" cy="340" r="36" fill="#6a1b9a" stroke="white" stroke-width="2"/>
+    <text x="80" y="338" font-size="11" font-weight="700" fill="white" text-anchor="middle">Industry</text>
+    <text x="80" y="350" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">naics · sector</text>
+    <!-- Company → Industry -->
+    <line x1="304" y1="232" x2="114" y2="322" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="165" y="269" width="60" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="195" y="279" font-size="8" fill="#555" text-anchor="middle">BELONGS_TO</text>
+
+    <!-- PeerCompany node -->
+    <circle cx="340" cy="360" r="36" fill="#00838f" stroke="white" stroke-width="2"/>
+    <text x="340" y="355" font-size="11" font-weight="700" fill="white" text-anchor="middle">Peer</text>
+    <text x="340" y="367" font-size="11" font-weight="700" fill="white" text-anchor="middle">Company</text>
+    <!-- Company → PeerCompany -->
+    <line x1="340" y1="244" x2="340" y2="324" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="350" y="276" width="52" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="376" y="286" font-size="8" fill="#555" text-anchor="middle">HAS_PEER</text>
+
+    <!-- Officer node -->
+    <circle cx="600" cy="230" r="36" fill="#4e342e" stroke="white" stroke-width="2"/>
+    <text x="600" y="228" font-size="11" font-weight="700" fill="white" text-anchor="middle">Officer</text>
+    <text x="600" y="240" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">risk_flags · boards</text>
+    <!-- Company → Officer -->
+    <line x1="382" y1="206" x2="565" y2="228" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="444" y="210" width="68" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="478" y="220" font-size="8" fill="#555" text-anchor="middle">HAS_OFFICER</text>
+
+    <!-- Activity node -->
+    <circle cx="520" cy="340" r="34" fill="#1a5276" stroke="white" stroke-width="2"/>
+    <text x="520" y="338" font-size="11" font-weight="700" fill="white" text-anchor="middle">Activity</text>
+    <text x="520" y="350" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">call · email · note</text>
+    <!-- Company → Activity -->
+    <line x1="372" y1="232" x2="488" y2="318" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="408" y="267" width="68" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="442" y="277" font-size="8" fill="#555" text-anchor="middle">HAS_ACTIVITY</text>
+
+    <!-- Deal node -->
+    <circle cx="620" cy="340" r="34" fill="#784212" stroke="white" stroke-width="2"/>
+    <text x="620" y="338" font-size="11" font-weight="700" fill="white" text-anchor="middle">Deal</text>
+    <text x="620" y="350" font-size="8" fill="rgba(255,255,255,0.8)" text-anchor="middle">product · status</text>
+    <!-- Company → Deal -->
+    <line x1="376" y1="236" x2="587" y2="322" stroke="#888" stroke-width="1.5" marker-end="url(#ra)"/>
+    <rect x="466" y="272" width="52" height="14" rx="3" fill="white" stroke="#ddd" stroke-width="1"/>
+    <text x="492" y="282" font-size="8" fill="#555" text-anchor="middle">HAS_DEAL</text>
+
+    <!-- PEER_OF self loop on Company -->
+    <path d="M 356 160 Q 400 100 384 160" fill="none" stroke="#888" stroke-width="1.5" marker-end="url(#ra)" stroke-dasharray="4,3"/>
+    <text x="392" y="125" font-size="8" fill="#555" text-anchor="middle">PEER_OF</text>
+  </svg>
+
+  <!-- Annotation panel -->
+  <div style="width:38%;display:flex;flex-direction:column;gap:10px;">
+    <div class="panel">
+      <h4 class="r">Key Traversals</h4>
+      <ul class="bl sm">
+        <li><strong>Board Interlock:</strong> (Company)→Officer.board_memberships cross-ref vs WF Officer.board_seats — finds shared external boards</li>
+        <li><strong>Alumni Network:</strong> Officer.education vs WF Officer.education — fuzzy institution match</li>
+        <li><strong>Peer Chain:</strong> (Company)-[:HAS_PEER]→(PeerCompany)←[:HAS_FILING]-(Financial) — join by ticker</li>
+        <li><strong>Portfolio View:</strong> All (Company) nodes + their Activity/Deal counts in one Cypher query</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4 class="b">Why Graph (not SQL)?</h4>
+      <p style="font-size:12px;color:var(--mid);line-height:1.6;">Board interlock = 3-hop traversal. In SQL: 5+ JOINs across officer, board_membership, wf_officer, wf_board_seat tables. In Cypher: 2 lines. Variable-schema officer data (some have 0 board seats, some have 8) also maps naturally to graph properties.</p>
+    </div>
+    <div style="background:#F3E5F5;border:2px solid #6a1b9a;border-radius:8px;padding:14px;">
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#6a1b9a;margin-bottom:6px;">Duplicate Node Prevention</p>
+      <p style="font-size:12px;color:var(--mid);line-height:1.5;"><code style="font-size:10px;">add_peer_financial_data()</code> does a case-insensitive name lookup before write: <code style="font-size:10px;">WHERE toLower(c.name) = toLower($name)</code> — prevents "3M" and "3m" splitting financials across two nodes.</p>
+    </div>
+  </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SLIDE 16 — ON-DEMAND FEATURES FLOW
+══════════════════════════════════════ -->
+<div class="slide layout-full" style="padding:40px 60px;">
+  <div class="sh" style="margin-bottom:16px;">
+    <div class="tag">On-Demand Feature Flow</div>
+    <h2>8 RM Features — Data Flow &amp; Dependencies</h2>
+    <p>These run independently of the research pipeline — called per-request from the dashboard. Each reads from Neo4j and calls the LLM factory where needed.</p>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+  <svg viewBox="0 0 880 360" width="100%" height="100%" style="max-height:300px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="af" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L7,3 z" fill="#888"/>
+      </marker>
+    </defs>
+
+    <!-- Data stores row -->
+    <!-- Neo4j -->
+    <rect x="10" y="140" width="100" height="80" rx="8" fill="#F3E5F5" stroke="#6a1b9a" stroke-width="2"/>
+    <text x="60" y="175" font-size="10" font-weight="700" fill="#6a1b9a" text-anchor="middle">Neo4j</text>
+    <text x="60" y="188" font-size="9" fill="#666" text-anchor="middle">Graph DB</text>
+    <text x="60" y="201" font-size="8" fill="#888" text-anchor="middle">all company data</text>
+
+    <!-- LLM Factory -->
+    <rect x="10" y="260" width="100" height="70" rx="8" fill="#FFF9C4" stroke="#f57f17" stroke-width="2"/>
+    <text x="60" y="292" font-size="10" font-weight="700" fill="#e65100" text-anchor="middle">LLM</text>
+    <text x="60" y="305" font-size="9" fill="#666" text-anchor="middle">Factory</text>
+    <text x="60" y="318" font-size="8" fill="#888" text-anchor="middle">Claude / Ollama</text>
+
+    <!-- DDG -->
+    <rect x="10" y="30" width="100" height="70" rx="8" fill="#FFF3E0" stroke="#e65100" stroke-width="2"/>
+    <text x="60" y="62" font-size="10" font-weight="700" fill="#e65100" text-anchor="middle">DDG</text>
+    <text x="60" y="75" font-size="9" fill="#666" text-anchor="middle">Search</text>
+    <text x="60" y="88" font-size="8" fill="#888" text-anchor="middle">DuckDuckGo</text>
+
+    <!-- Feature boxes (6 main, 2 smaller) -->
+    <!-- Deal Triggers -->
+    <rect x="160" y="20" width="130" height="60" rx="6" fill="#FCE4EC" stroke="#880e4f" stroke-width="1.5"/>
+    <text x="225" y="40" font-size="9.5" font-weight="700" fill="#880e4f" text-anchor="middle">Deal Trigger Alerts</text>
+    <text x="225" y="54" font-size="8.5" fill="#555" text-anchor="middle">GET /triggers</text>
+    <text x="225" y="66" font-size="8" fill="#888" text-anchor="middle">LLM: news + fins → triggers</text>
+
+    <!-- Covenant Watch -->
+    <rect x="160" y="98" width="130" height="60" rx="6" fill="#E3F2FD" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="225" y="118" font-size="9.5" font-weight="700" fill="#1565c0" text-anchor="middle">Covenant Watch</text>
+    <text x="225" y="132" font-size="8.5" fill="#555" text-anchor="middle">GET /covenant-watch</text>
+    <text x="225" y="144" font-size="8" fill="#888" text-anchor="middle">computed · no LLM needed</text>
+
+    <!-- Incumbent Bank -->
+    <rect x="160" y="176" width="130" height="60" rx="6" fill="#FFF8E1" stroke="#C8A951" stroke-width="1.5"/>
+    <text x="225" y="196" font-size="9.5" font-weight="700" fill="#B8860B" text-anchor="middle">Incumbent Bank</text>
+    <text x="225" y="210" font-size="8.5" fill="#555" text-anchor="middle">GET /incumbent-bank</text>
+    <text x="225" y="222" font-size="8" fill="#888" text-anchor="middle">DDG + SEC credit search</text>
+
+    <!-- Meeting Brief -->
+    <rect x="160" y="254" width="130" height="60" rx="6" fill="#E8F5E9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="225" y="274" font-size="9.5" font-weight="700" fill="#2e7d32" text-anchor="middle">Meeting Brief</text>
+    <text x="225" y="288" font-size="8.5" fill="#555" text-anchor="middle">GET /meeting-brief</text>
+    <text x="225" y="300" font-size="8" fill="#888" text-anchor="middle">LLM synthesises all dims</text>
+
+    <!-- Relationship Map -->
+    <rect x="350" y="20" width="130" height="60" rx="6" fill="#F3E5F5" stroke="#6a1b9a" stroke-width="1.5"/>
+    <text x="415" y="40" font-size="9.5" font-weight="700" fill="#6a1b9a" text-anchor="middle">Relationship Map</text>
+    <text x="415" y="54" font-size="8.5" fill="#555" text-anchor="middle">GET /relationship-map</text>
+    <text x="415" y="66" font-size="8" fill="#888" text-anchor="middle">cross-ref WF 17 officers</text>
+
+    <!-- Portfolio + Heatmap -->
+    <rect x="350" y="98" width="130" height="60" rx="6" fill="#FFF3F3" stroke="#D71E28" stroke-width="1.5"/>
+    <text x="415" y="118" font-size="9.5" font-weight="700" fill="#D71E28" text-anchor="middle">Portfolio + Heatmap</text>
+    <text x="415" y="132" font-size="8.5" fill="#555" text-anchor="middle">GET /rm/portfolio</text>
+    <text x="415" y="144" font-size="8" fill="#888" text-anchor="middle">aggregated RM stats</text>
+
+    <!-- Activity Log -->
+    <rect x="350" y="176" width="130" height="60" rx="6" fill="#E0F7FA" stroke="#006064" stroke-width="1.5"/>
+    <text x="415" y="196" font-size="9.5" font-weight="700" fill="#006064" text-anchor="middle">Activity Log</text>
+    <text x="415" y="210" font-size="8.5" fill="#555" text-anchor="middle">GET POST /activity</text>
+    <text x="415" y="222" font-size="8" fill="#888" text-anchor="middle">calls · emails · meetings</text>
+
+    <!-- Deals History -->
+    <rect x="350" y="254" width="130" height="60" rx="6" fill="#E0F7FA" stroke="#006064" stroke-width="1.5"/>
+    <text x="415" y="274" font-size="9.5" font-weight="700" fill="#006064" text-anchor="middle">Deals History</text>
+    <text x="415" y="288" font-size="8.5" fill="#555" text-anchor="middle">GET POST /deals</text>
+    <text x="415" y="300" font-size="8" fill="#888" text-anchor="middle">product · status · amount</text>
+
+    <!-- Neo4j lines to features -->
+    <line x1="110" y1="165" x2="160" y2="50" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="170" x2="160" y2="128" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="180" x2="160" y2="206" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="190" x2="160" y2="284" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="175" x2="350" y2="50" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="175" x2="350" y2="128" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="180" x2="350" y2="206" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+    <line x1="110" y1="185" x2="350" y2="284" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#af)"/>
+
+    <!-- LLM lines to features that use it -->
+    <line x1="110" y1="280" x2="160" y2="50" stroke="#f57f17" stroke-width="1.5" marker-end="url(#af)"/>
+    <line x1="110" y1="290" x2="160" y2="284" stroke="#f57f17" stroke-width="1.5" marker-end="url(#af)"/>
+
+    <!-- DDG lines -->
+    <line x1="110" y1="65" x2="160" y2="206" stroke="#e65100" stroke-width="1.5" marker-end="url(#af)"/>
+
+    <!-- Right panel: output to dashboard -->
+    <rect x="550" y="80" width="320" height="200" rx="8" fill="#FFF3F3" stroke="#D71E28" stroke-width="2"/>
+    <text x="710" y="100" font-size="9" font-weight="700" fill="#D71E28" letter-spacing="1.5" text-anchor="middle">DASHBOARD OUTPUT (Next.js)</text>
+    <line x1="560" y1="108" x2="860" y2="108" stroke="#eee" stroke-width="1"/>
+    <text x="710" y="126" font-size="9" fill="#555" text-anchor="middle">Tab 1: Deal Triggers + Executive Summary</text>
+    <text x="710" y="142" font-size="9" fill="#555" text-anchor="middle">Tab 2: Financial Metrics + Covenant Watch</text>
+    <text x="710" y="158" font-size="9" fill="#555" text-anchor="middle">Tab 6: Officer Intel + Board Interlock Map</text>
+    <text x="710" y="174" font-size="9" fill="#555" text-anchor="middle">Tab 7: Incumbent Bank + Recommendations</text>
+    <text x="710" y="190" font-size="9" fill="#555" text-anchor="middle">Meeting Brief Modal (header — always visible)</text>
+    <text x="710" y="206" font-size="9" fill="#555" text-anchor="middle">Tab 8: Activity Log + Deals History</text>
+    <text x="710" y="222" font-size="9" fill="#555" text-anchor="middle">/rm: Portfolio Dashboard + Industry Heat Map</text>
+    <text x="710" y="238" font-size="9" fill="#555" text-anchor="middle">PDF Report (reportlab · A4 · streamed)</text>
+    <text x="710" y="254" font-size="8" fill="#888" text-anchor="middle">PDF available via GET /company/{name}/report/pdf [API key]</text>
+    <text x="710" y="268" font-size="8" fill="#888" text-anchor="middle">JSON report at GET /company/{name}/report [API key]</text>
+
+    <!-- Arrows from features to dashboard -->
+    <line x1="480" y1="50" x2="550" y2="140" stroke="#D71E28" stroke-width="1.5" marker-end="url(#af)"/>
+    <line x1="480" y1="128" x2="550" y2="160" stroke="#D71E28" stroke-width="1.5" marker-end="url(#af)"/>
+    <line x1="480" y1="206" x2="550" y2="190" stroke="#D71E28" stroke-width="1.5" marker-end="url(#af)"/>
+    <line x1="480" y1="284" x2="550" y2="200" stroke="#D71E28" stroke-width="1.5" marker-end="url(#af)"/>
+
+    <!-- Contact recency boost note -->
+    <rect x="160" y="328" width="320" height="24" rx="4" fill="#FFF9C4" stroke="#f57f17" stroke-width="1"/>
+    <text x="320" y="344" font-size="8.5" fill="#e65100" text-anchor="middle">Trigger urgency boost: contact gap &gt;30d → escalate medium triggers; &gt;60d → escalate all triggers to HIGH</text>
+  </svg>
+  </div>
+</div>
 <div class="slide layout-full">
   <div class="sh">
     <div class="tag">Architecture</div>
@@ -850,7 +1402,7 @@
 <!-- ══════════════════════════════════════ NAV ══ -->
 <div id="nav">
   <button id="btn-prev">← Prev</button>
-  <span id="slide-counter">1 / 21</span>
+  <span id="slide-counter">1 / 24</span>
   <button id="btn-next" class="primary">Next →</button>
 </div>
 
