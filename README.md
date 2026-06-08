@@ -318,4 +318,270 @@ tail -50 backend.log
 
 ---
 
+## System Architecture
+
+```mermaid
+graph TB
+    subgraph Browser["Browser"]
+        direction TB
+        UI["Next.js 16 / React 19 / TailwindCSS"]
+        subgraph Tabs["8-Tab Research Dashboard  (localhost:3000/banking)"]
+            T1["1 Executive Summary\n+ Deal Trigger Alerts"]
+            T2["2 Financial Metrics\n+ Covenant Watch"]
+            T3["3 Industry Analysis\nPeer Benchmarking"]
+            T4["4 News & Sentiment\nSparklines"]
+            T5["5 Knowledge Graph\nForce-directed viz"]
+            T6["6 Officer Intelligence\nBoard Interlock + Alumni"]
+            T7["7 Pitch\nIncumbent Bank + Entry Points"]
+            T8["8 Activity\nLog + Deals History"]
+        end
+        RM["RM Portfolio Dashboard\n(localhost:3000/rm)\nSortable table + Industry Heat Map"]
+        MB["Meeting Brief Modal\nHeader button — always visible"]
+        UI --> Tabs
+        UI --> RM
+        UI --> MB
+    end
+
+    subgraph API["FastAPI Backend  (localhost:8000)"]
+        direction TB
+        EP["REST Endpoints (26 total)"]
+        AUTH["X-API-Key Auth"]
+        BG["Async Background Jobs\n(research pipeline)"]
+        EP --> AUTH
+        EP --> BG
+    end
+
+    subgraph Pipeline["LangGraph Research Pipeline"]
+        WF["9-Node Sequential Workflow\nEmits progress events every step"]
+    end
+
+    subgraph Agents["Research Agents"]
+        A1["WebScraperAgent\nCompany website"]
+        A2["EdgarAgent\nSEC 10-K / 10-Q\n(disk cache first)"]
+        A3["NewsAgent + Classifier\nDDG + LLM sentiment"]
+        A4["ProductAgent\nPortfolio generation"]
+        A5["IndustryAgent\nNAICS + peer discovery"]
+        A6["OfficerAgent\nExec profiling"]
+        A7["TemporalDimension\nDecay curves + pruning"]
+    end
+
+    subgraph LLMFactory["LLM Factory (llm_factory.py)"]
+        direction LR
+        LLMF["get_llm(json_mode=True/False)"]
+        LLMF -->|"LLM_PROVIDER=anthropic"| ANT
+        LLMF -->|"LLM_PROVIDER=ollama"| OLL
+    end
+
+    subgraph OnDemand["On-Demand AI Features"]
+        OD1["Deal Trigger Alerts\nLLM classifies news + financials"]
+        OD2["Covenant Watch\nD/EBITDA, coverage, ROA vs thresholds"]
+        OD3["Incumbent Bank Detection\nDDG + SEC credit agreement search"]
+        OD4["Meeting Brief\nLLM synthesis across all dimensions"]
+        OD5["Relationship Intelligence\nBoard Interlock + Alumni Network"]
+        OD6["Portfolio + Heatmap\nAggregated RM stats by company/sector"]
+    end
+
+    subgraph Storage["Data Layer"]
+        NEO["Neo4j Graph DB\nbolt://localhost:7687\n9 node types"]
+        CACHE["Local File Cache\nsec-edgar-filings/"]
+    end
+
+    subgraph External["External Services"]
+        ANT["Anthropic API\nClaude Sonnet 4.6"]
+        OLL["Ollama (local)\nllama3:latest"]
+        EDGAR["SEC EDGAR"]
+        DDG["DuckDuckGo (ddgs)"]
+        YF["yfinance"]
+    end
+
+    Browser -->|"HTTP fetch"| API
+    API --> Pipeline
+    Pipeline --> Agents
+    API --> OnDemand
+    OnDemand --> LLMFactory
+    Agents --> LLMFactory
+    A2 --> CACHE
+    EDGAR --> A2
+    DDG --> A3
+    DDG --> A6
+    OnDemand --> DDG
+    OnDemand --> Storage
+    Agents --> Storage
+    YF --> API
+    Storage --> API
+
+    style Browser fill:#fff3f3,stroke:#D71E28,stroke-width:2px
+    style API fill:#fff8e1,stroke:#C8A951,stroke-width:2px
+    style Pipeline fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Agents fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style LLMFactory fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style OnDemand fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    style Storage fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    style External fill:#e0f7fa,stroke:#006064,stroke-width:2px
+```
+
+---
+
+## LangGraph Research Pipeline
+
+```mermaid
+flowchart TD
+    START(["research_company\nname · ticker · website"])
+
+    subgraph PIPELINE["LangGraph Sequential Workflow  —  runs once per research job"]
+        N1["1  scrape_company_info\nWebScraperAgent\nBeautifulSoup scrape + LLM profile extraction"]
+        N2["2  fetch_financials\nEdgarAgent\nSEC EDGAR 10-K + 10-Q · ticker normalisation · XBRL parse"]
+        N3["3  search_news\nNewsAgent + NewsClassifier\nDuckDuckGo queries · LLM batch classification (5/call)"]
+        N4["4  generate_products\nProductAgent\nLLM maps sector + size to likely banking product portfolio"]
+        N5["5  analyze_industry\nIndustryAgent\nNAICS via LLM · DuckDuckGo peer discovery with tickers"]
+        N6["6  fetch_peer_financials\nEdgarAgent (per peer)\nSEC 10-K / 10-Q per peer · foreign ticker skip"]
+        N7["7  fetch_officers\nOfficerAgent\nDDG discovery + 4 deep-profile searches per officer\nbackground · risk_flags · board_memberships · education"]
+        N8["8  apply_temporal_scoring\nTemporalDimension\nDecay curves per dimension · prune below 0.3 · boost material events"]
+        N9["9  populate_graph\nNeo4j + LLM\nMERGE all nodes + relationships · generate AI executive summary"]
+    end
+
+    DONE(["Result returned to API\ndimensions · summary · errors"])
+
+    START --> N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8 --> N9 --> DONE
+
+    style START fill:#D71E28,color:#fff,stroke:#D71E28
+    style DONE  fill:#2e7d32,color:#fff,stroke:#2e7d32
+    style PIPELINE fill:#f9f9f9,stroke:#cccccc
+    style N1 fill:#e3f2fd,stroke:#1565c0
+    style N2 fill:#e3f2fd,stroke:#1565c0
+    style N3 fill:#fff3e0,stroke:#e65100
+    style N4 fill:#e8f5e9,stroke:#2e7d32
+    style N5 fill:#f3e5f5,stroke:#6a1b9a
+    style N6 fill:#e3f2fd,stroke:#1565c0
+    style N7 fill:#fce4ec,stroke:#880e4f
+    style N8 fill:#fff8e1,stroke:#f9a825
+    style N9 fill:#e0f2f1,stroke:#00695c
+```
+
+---
+
+## Neo4j Graph Schema
+
+```mermaid
+graph LR
+    C(["Company"])
+    F(["Financial"])
+    N(["News"])
+    P(["Product"])
+    I(["Industry"])
+    PC(["PeerCompany"])
+    O(["Officer"])
+    AC(["Activity"])
+    D(["Deal"])
+
+    C -->|HAS_FILING| F
+    C -->|MENTIONED_IN| N
+    C -->|OFFERS| P
+    C -->|BELONGS_TO| I
+    C -->|HAS_PEER| PC
+    C -->|HAS_OFFICER| O
+    C -->|PEER_OF| C
+    C -->|HAS_ACTIVITY| AC
+    C -->|HAS_DEAL| D
+
+    style C fill:#D71E28,color:#fff
+    style F fill:#1565c0,color:#fff
+    style N fill:#e65100,color:#fff
+    style P fill:#2e7d32,color:#fff
+    style I fill:#6a1b9a,color:#fff
+    style PC fill:#00838f,color:#fff
+    style O fill:#4e342e,color:#fff
+    style AC fill:#1a5276,color:#fff
+    style D fill:#784212,color:#fff
+```
+
+---
+
+## TTL Cache Policy
+
+All cached data in Neo4j expires after a dimension-specific TTL. The research pipeline skips re-fetching when the cached node is still fresh.
+
+| Dimension | TTL | Notes |
+|-----------|-----|-------|
+| Financial data | **30 days** | Re-fetch if filing node is older than this |
+| NAICS classification | **180 days** | Industry code changes rarely |
+| Peer company list | **180 days** | Peer list (not their financials) |
+| Company info | **7 days** | Website-scraped overview |
+| News | **7 days** | Refreshed frequently |
+| Officer profiles | **120 days** | Executive roles are volatile |
+| Board interlocks | **180 days** | Board seats change every ~6 months |
+| Incumbent bank | **365 days** | Credit agreements are annual |
+
+**EDGAR disk cache (separate from Neo4j TTL):** If the raw SEC filing already exists on disk under `sec-edgar-filings/{TICKER}/{TYPE}/`, the download is skipped entirely — regardless of Neo4j TTL. This covers 55+ pre-cached tickers.
+
+---
+
+## Relevance Scoring
+
+Every item in the graph carries a `relevance_score` (0.0 – 1.0) computed by `TemporalDimension`.
+
+### Score Formula
+
+$$\text{total\_score} = (\text{recency\_score} \times 0.6) + (\text{content\_score} \times 0.4)$$
+
+**Recency score** — linear decay within the relevance window, exponential beyond it:
+
+| Range | Formula |
+|-------|---------|
+| Within window | $1.0 - \frac{\text{days\_old}}{\text{window}} \times 0.7$ (decays to 0.3 at edge) |
+| Beyond window | $0.3 \times (1 - \text{decay\_rate})^{\text{extra\_days}}$, floored at 0.0 |
+
+**Relevance windows and decay rates by data type:**
+
+| Data type | Window (days) | Decay rate |
+|-----------|:---:|:---:|
+| News | 90 | 0.05 |
+| Financial (annual) | 365 | 0.01 |
+| Financial (quarterly) | 120 | — |
+| Products | 730 | 0.02 |
+| Industry trends | 180 | 0.03 |
+| Company info | 365 | — |
+| Officer profiles | 120 | 0.015 |
+| Board interlocks | 180 | 0.012 |
+| Incumbent bank | 365 | 0.008 |
+
+**Content score boosts** (additive, capped at 1.0):
+
+| Signal | Boost |
+|--------|:-----:|
+| `severity = high` | +0.30 |
+| `severity = medium` | +0.15 |
+| `sentiment = negative` | +0.20 |
+| `revenue_impact = high` | +0.20 |
+| `filing_type = 10-K / 10-Q` | +0.30 |
+
+**Freshness labels:**
+
+| Score | Label |
+|-------|-------|
+| ≥ 0.8 | `fresh` |
+| ≥ 0.5 | `recent` |
+| ≥ 0.3 | `aged` |
+| < 0.3 | `stale` |
+
+Items with `relevance_score < 0.3` are pruned from the graph (products use a lower threshold of `0.21`).
+
+---
+
+## Covenant Watch Thresholds
+
+The `/company/{name}/covenant-watch` endpoint computes these ratios and flags breaches:
+
+| Ratio | Formula | Threshold | Direction |
+|-------|---------|:---------:|:---------:|
+| Debt / EBITDA | `long_term_debt ÷ ebitda` | **4.0×** | Higher is worse |
+| Interest Coverage | `operating_income ÷ interest_expense` | **2.5×** | Lower is worse |
+| Net Margin | `net_income ÷ revenue × 100` | **0 %** | Lower is worse |
+| Debt / Equity | `long_term_debt ÷ stockholders_equity` | **3.0×** | Higher is worse |
+| Return on Assets | `net_income ÷ total_assets × 100` | **2.0 %** | Lower is worse |
+
+A ratio is flagged **breach** when it crosses the threshold in the "worse" direction. The UI renders breached ratios in red.
+
+---
+
 **Built with:** FastAPI · LangGraph · Claude Sonnet 4.6 · Neo4j · Next.js · reportlab
