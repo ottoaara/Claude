@@ -462,7 +462,16 @@ class BankingResearchOrchestrator:
 
             # ── Cache check (no semaphore needed) ───────────────────────
             cached = self.kg.get_financials_by_ticker(ticker, max_age_days=FINANCIAL_CACHE_TTL_DAYS)
-            if cached:
+            # Treat as cache miss if critical financial fields are incomplete.
+            # Require both operating_income AND stockholders_equity to be present
+            # (the two fields that previously failed to extract).
+            # Revenue alone is insufficient — old failed extractions often had revenue
+            # from MD&A text but none of the balance sheet fields.
+            _REQUIRED_FIELDS = ("operating_income", "stockholders_equity")
+            has_quality_data = cached and all(
+                cached[0].get(f) is not None for f in _REQUIRED_FIELDS
+            )
+            if has_quality_data:
                 print(f"   ✅ Cache hit for {name} ({ticker}) — skipping EDGAR")
                 filing = cached[0]
                 row = {

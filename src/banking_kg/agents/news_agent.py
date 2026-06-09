@@ -1,5 +1,5 @@
 from typing import Dict, List
-from ..llm_factory import get_llm
+from ..llm_factory import get_llm, robust_parse_json
 from langchain_core.prompts import ChatPromptTemplate
 from ddgs import DDGS
 import os
@@ -127,7 +127,9 @@ Rules:
                         response_text = part
                         break
 
-            news_items = json.loads(response_text)
+            news_items = robust_parse_json(response_text, [])
+            if not isinstance(news_items, list):
+                news_items = []
 
             for item in news_items:
                 item["company_name"] = company_name
@@ -167,13 +169,7 @@ Include only recent, relevant news items."""),
                 "results": json.dumps(hits, indent=2)
             })
 
-            response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            return json.loads(response_text)
+            return robust_parse_json(response.content, [])
 
         except Exception as e:
             print(f"Error searching general news: {e}")
@@ -206,18 +202,11 @@ Return valid JSON."""),
             chain = analysis_prompt | self.llm
             response = chain.invoke({"news": json.dumps(news_items, indent=2)})
 
-            response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            return json.loads(response_text)
+            return robust_parse_json(response.content, {})
 
         except Exception as e:
             print(f"Error analyzing sentiment: {e}")
             return {
-                "error": str(e),
                 "overall_sentiment": "unknown",
                 "risk_level": "unknown"
             }

@@ -155,13 +155,46 @@ BANK_OFFICERS: List[Dict] = [
 
 
 def _normalize_board(name: str) -> str:
-    """Normalize a board/company name for fuzzy matching."""
+    """Normalize a board/company name for fuzzy matching.
+
+    Handles messy LLM output like:
+      "Board of Directors, SpaceX (as Founder/CEO)"  → "spacex"
+      "Independent Director at NetApp, Inc. since 2020" → "netapp"
+      "Portillo's Board of Directors (since 2025)"   → "portillo's"
+      "Microsoft Corporation"                         → "microsoft"
+    """
     s = name.lower().strip()
+
+    # Strip parenthetical content: "(as Founder/CEO)", "(since 2025)", etc.
+    s = re.sub(r'\(.*?\)', '', s).strip()
+
+    # Strip common prefixes the LLM prepends
+    for prefix in [
+        "board of directors,", "board of directors", "board member,", "board member",
+        "independent director at", "independent director,", "director at",
+        "non-executive director at", "non-executive director,",
+        "member of the board of", "member,", "trustee,",
+    ]:
+        if s.startswith(prefix):
+            s = s[len(prefix):].strip().lstrip(",").strip()
+            break
+
+    # Strip trailing clauses: "since 2020", "— audit committee", "& audit committee", etc.
+    s = re.sub(r'\s*(since|—|&|–|\bat\b).*$', '', s).strip()
+
+    # Strip trailing "board of directors" / "board" suffix (e.g. "Portillo's Board of Directors")
+    s = re.sub(r'\s*board of directors\s*$', '', s).strip()
+    s = re.sub(r'\s*\bboard\b\s*$', '', s).strip()
+
+    # Strip corporate suffixes
     for suffix in [" corporation", " corp.", " corp", " incorporated", " inc.",
                    " inc", " limited", " ltd.", " ltd", " co.", " co",
                    " company", " llc", " lp", " plc", " group"]:
         if s.endswith(suffix):
             s = s[: -len(suffix)].strip()
+
+    # Remove stray punctuation
+    s = s.strip(".,;: ")
     return s
 
 

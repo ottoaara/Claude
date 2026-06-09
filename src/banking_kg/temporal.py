@@ -39,11 +39,23 @@ class TemporalDimension:
         """
         try:
             if isinstance(item_date, str):
+                # Handle fiscal quarter strings like "Q1 2026", "Q3 2024"
+                import re as _re
+                q_match = _re.match(r'Q([1-4])\s+(\d{4})', item_date.strip())
+                if q_match:
+                    quarter, year = int(q_match.group(1)), int(q_match.group(2))
+                    month = quarter * 3  # Q1→3, Q2→6, Q3→9, Q4→12
+                    from datetime import date
+                    date_obj = datetime(year, month, 1)
+                # Handle "FY2024" or "FY 2024"
+                elif _re.match(r'FY\s*\d{4}', item_date.strip()):
+                    year = int(_re.search(r'\d{4}', item_date).group())
+                    date_obj = datetime(year, 12, 31)
                 # Try to parse ISO format
-                if 'T' in item_date:
+                elif 'T' in item_date:
                     date_obj = datetime.fromisoformat(item_date.replace('Z', '+00:00'))
                 else:
-                    date_obj = datetime.strptime(item_date, '%Y-%m-%d')
+                    date_obj = datetime.strptime(item_date[:10], '%Y-%m-%d')
             else:
                 date_obj = item_date
 

@@ -214,19 +214,159 @@ class EdgarFinancialAgent:
             traceback.print_exc()
             return []
 
+    @staticmethod
+    def _smart_extract(filing_path: Path, max_chars: int) -> str:
+        """
+        Smart text extraction from SEC full-submission.txt (SGML or HTML wrapper).
+
+        Strategy:
+        1. Scan raw bytes for 'ixt:num-dot-decimal' — the XBRL marker that only
+           appears on actual financial-statement table cells (not notes/MD&A prose).
+        2. If found, read 5 KB before → 80 KB after that byte offset; strip HTML.
+        3. If not found (older plain-text filing), fall back to keyword search in
+           the stripped full document text.
+
+        Returns up to max_chars of financial-table content.
+        """
+        import re as _re
+
+        # ── Step 1: Scan for the EARLIEST iXBRL financial-statement anchor ──────
+        # Large filers (GM, Ford, JPMorgan…) split the 10-K into separate HTML
+        # sections: the income statement can be 100–200 KB before the balance
+        # sheet in the raw file.  Scanning for the income-statement anchor first
+        # ensures the 14k text window starts there, not mid-balance-sheet.
+        #
+        # Priority order — scan ALL anchors in one pass and keep the minimum offset:
+        #   IS anchors  : Revenues, OperatingIncomeLoss  (appear before the BS)
+        #   BS anchors  : Assets, StockholdersEquity     (fallback if IS not tagged)
+        IS_ANCHORS = [
+            b'name="us-gaap:Revenues"',
+            b"name='us-gaap:Revenues'",
+            b'name="us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"',
+            b'name="us-gaap:OperatingIncomeLoss"',
+            b"name='us-gaap:OperatingIncomeLoss'",
+        ]
+        BS_ANCHORS = [
+            b'name="us-gaap:Assets"',
+            b"name='us-gaap:Assets'",
+            b'name="us-gaap:StockholdersEquity"',
+            b'name="us-gaap:NetIncomeLoss"',
+        ]
+        ALL_ANCHORS = IS_ANCHORS + BS_ANCHORS
+
+        xbrl_offset = -1
+        chunk_size = 300_000
+        scan_limit = 12_000_000
+
+        # Collect ALL anchor positions in one sequential scan, then pick the min.
+        candidate_offsets = {}  # anchor_bytes → file_offset
+        with filing_path.open('rb') as fh:
+            overlap = b''
+            pos = 0
+            remaining = set(ALL_ANCHORS)
+            while pos < scan_limit and remaining:
+                chunk = fh.read(chunk_size)
+                if not chunk:
+                    break
+                combined = overlap + chunk
+                found_this_chunk = set()
+                for anchor in list(remaining):
+                    idx = combined.find(anchor)
+                    if idx != -1:
+                        candidate_offsets[anchor] = pos - len(overlap) + idx
+                        found_this_chunk.add(anchor)
+                remaining -= found_this_chunk
+                # Stop early once we have at least one IS anchor
+                if any(a in candidate_offsets for a in IS_ANCHORS):
+                    break
+                overlap = combined[-50:]
+                pos += len(chunk)
+
+        if candidate_offsets:
+            # Prefer the earliest IS anchor; fall back to earliest BS anchor
+            is_hits = {a: o for a, o in candidate_offsets.items() if a in IS_ANCHORS}
+            xbrl_offset = min(is_hits.values()) if is_hits else min(candidate_offsets.values())
+
+        if xbrl_offset > 0:
+            # ── Step 2a: Read raw window starting at the earliest anchor ─────
+            # Go back 2 KB to catch the statement header, then read 155 KB to
+            # cover BS + equity + cash flow statements that follow.
+            read_start = max(0, xbrl_offset - 2_000)
+            read_len = 155_000
+            with filing_path.open('rb') as fh:
+                fh.seek(read_start)
+                raw = fh.read(read_len).decode('utf-8', errors='ignore')
+        else:
+            # ── Step 2b: Fallback — read first 12 MB and locate TEXT section ──
+            with filing_path.open('rb') as fh:
+                raw = fh.read(scan_limit).decode('utf-8', errors='ignore')
+            # Extract primary 10-K/10-Q document from SGML wrapper
+            if '<SEC-DOCUMENT' in raw[:200] or '<DOCUMENT>' in raw[:2000]:
+                doc_m = _re.search(
+                    r'<DOCUMENT>.*?<TYPE>\s*(10-[KQ][^\s<]*)',
+                    raw[:500_000], _re.DOTALL | _re.IGNORECASE
+                )
+                if doc_m:
+                    txt_m = _re.search(
+                        r'<TEXT>(.*)', raw[doc_m.start():], _re.DOTALL | _re.IGNORECASE
+                    )
+                    if txt_m:
+                        raw = txt_m.group(1)
+
+        # ── Step 3: Strip HTML and clean whitespace ─────────────────────────────
+        text = _re.sub(r'<[^>]+>', ' ', raw)
+        text = _re.sub(r'&[a-zA-Z0-9#]+;', ' ', text)
+        text = _re.sub(r'\s{3,}', '\n', text).strip()
+
+        # ── Step 4: In fallback mode, jump to the first actual financial table ──
+        if xbrl_offset <= 0:
+            fin_keywords = [
+                'CONSOLIDATED BALANCE SHEETS',
+                'CONSOLIDATED BALANCE SHEET',
+                'CONDENSED CONSOLIDATED BALANCE SHEETS',
+                'CONSOLIDATED STATEMENTS OF OPERATIONS',
+                'CONSOLIDATED STATEMENTS OF INCOME',
+            ]
+            lower = text.lower()
+            table_pos = -1
+            for kw in fin_keywords:
+                search_from = 0
+                while True:
+                    pos = lower.find(kw.lower(), search_from)
+                    if pos == -1:
+                        break
+                    # Require "December"/"ASSETS"/dollar+digit within 600 chars
+                    after = text[pos:pos + 600]
+                    if _re.search(r'(December|March|June|September|ASSETS|\$\s*\d)', after, _re.IGNORECASE):
+                        table_pos = pos
+                        break
+                    search_from = pos + 1
+                if table_pos != -1:
+                    break
+            if table_pos > 0:
+                text = text[max(0, table_pos - 100):]
+
+        return text[:max_chars]
+
     def extract_financial_metrics(self, filing_path: Path, max_chars: int = 150000) -> Dict:
         """Extract key financial metrics from filing using Claude."""
         import time as _time
+        import os as _os
+        # Ollama has a small context window — use smart extraction targeting financial sections
+        is_ollama = _os.getenv("LLM_PROVIDER", "anthropic").lower() == "ollama"
+        if is_ollama:
+            max_chars = 14000
         try:
-            raw = filing_path.read_text(encoding='utf-8', errors='ignore')
-
-            # Strip HTML tags to get plain text
-            import re as _re
-            plain = _re.sub(r'<[^>]+>', ' ', raw)
-            plain = _re.sub(r'&[a-zA-Z0-9#]+;', ' ', plain)
-            plain = _re.sub(r'\s{3,}', '\n', plain).strip()
-
-            content = plain[:max_chars]
+            if is_ollama:
+                # Smart extraction: find financial statements section in SGML/HTML filing
+                content = self._smart_extract(filing_path, max_chars)
+            else:
+                raw = filing_path.read_text(encoding='utf-8', errors='ignore')
+                import re as _re
+                plain = _re.sub(r'<[^>]+>', ' ', raw)
+                plain = _re.sub(r'&[a-zA-Z0-9#]+;', ' ', plain)
+                plain = _re.sub(r'\s{3,}', '\n', plain).strip()
+                content = plain[:max_chars]
 
             extraction_prompt = ChatPromptTemplate.from_messages([
                 ("system", """You are a financial analyst extracting data from an SEC filing (10-K or 10-Q).

@@ -10,7 +10,7 @@ Responsibilities:
 """
 
 from typing import Dict, List, Optional
-from ..llm_factory import get_llm
+from ..llm_factory import get_llm, robust_parse_json
 from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
@@ -218,6 +218,8 @@ Return ONLY valid JSON — no markdown."""),
                 "items_json": json.dumps(classified_items, indent=2),
             })
             result = self._parse_json(response.content)
+            if not isinstance(result, dict):
+                return self._fallback_aggregate(classified_items)
             result["analyzed_at"] = datetime.now().isoformat()
             return result
         except Exception as e:
@@ -228,13 +230,7 @@ Return ONLY valid JSON — no markdown."""),
 
     @staticmethod
     def _parse_json(text: str) -> any:
-        text = text.strip()
-        if text.startswith("```"):
-            lines = text.splitlines()
-            # strip opening/closing fence
-            inner = [l for l in lines if not l.startswith("```")]
-            text = "\n".join(inner).strip()
-        return json.loads(text)
+        return robust_parse_json(text, None)
 
     @staticmethod
     def _fallback_classification(error: Optional[str] = None) -> Dict:

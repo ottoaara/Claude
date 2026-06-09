@@ -142,6 +142,71 @@ def _dedup_peers(peers: List[Dict]) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
+# NAICS sector filter — hard rule: peers must be in the same sector
+# ---------------------------------------------------------------------------
+
+# Well-known companies and their NAICS 2-digit sector codes.
+# Used to reject cross-sector hallucinations (e.g. Apple/Amazon as auto peers).
+_KNOWN_SECTORS: Dict[str, str] = {
+    # Information / Tech (51)
+    "AAPL": "51", "MSFT": "51", "GOOGL": "51", "GOOG": "51",
+    "META": "51", "NFLX": "51", "SNAP": "51", "TWTR": "51",
+    "UBER": "51", "LYFT": "51", "ABNB": "51", "SPOT": "51",
+    "CRM": "51", "ORCL": "51", "SAP": "51", "ADBE": "51",
+    "INTC": "51", "AMD": "51", "NVDA": "51", "QCOM": "51",
+    "IBM": "51", "HPE": "51", "HPQ": "51", "DELL": "51",
+    # Retail / E-commerce (44-45)
+    "AMZN": "44", "WMT": "44", "TGT": "44", "COST": "44",
+    "HD": "44", "LOW": "44", "EBAY": "44", "ETSY": "44",
+    # Finance / Insurance (52)
+    "JPM": "52", "BAC": "52", "WFC": "52", "C": "52",
+    "GS": "52", "MS": "52", "AXP": "52", "V": "52", "MA": "52",
+    "BRK.B": "52", "BRK.A": "52",
+    # Health Care (62)
+    "JNJ": "62", "PFE": "62", "MRK": "62", "ABBV": "62",
+    "UNH": "62", "CVS": "62", "MCK": "62",
+    # Energy (21)
+    "XOM": "21", "CVX": "21", "COP": "21", "SLB": "21",
+    # Utilities (22)
+    "NEE": "22", "DUK": "22", "SO": "22", "AEP": "22",
+    # Food / Beverages — Manufacturing (31-33) subset but often confused
+    "KO": "31", "PEP": "31", "MCD": "72", "SBUX": "72",
+}
+
+_MFG_SECTOR_CODES = {"31", "32", "33", "31-33"}
+
+
+def _naics_matches(sector_a: str, sector_b: str) -> bool:
+    """Return True if two NAICS 2-digit sector codes are in the same bucket.
+    Manufacturing is split 31/32/33 but treated as one sector (31-33)."""
+    def _bucket(s: str) -> str:
+        s = str(s).strip().split("-")[0]  # "31-33" → "31"
+        if s in ("31", "32", "33"):
+            return "31"
+        return s
+    return _bucket(sector_a) == _bucket(sector_b)
+
+
+def _filter_peers_by_naics(peers: List[Dict], company_naics_sector: str) -> List[Dict]:
+    """Remove peers that belong to a clearly different NAICS sector.
+    Only applied when we have a confident sector classification.
+    """
+    if not company_naics_sector or company_naics_sector in ("", "99", "unknown"):
+        return peers
+
+    filtered = []
+    for peer in peers:
+        ticker = (peer.get("ticker") or "").upper().strip()
+        peer_sector = _KNOWN_SECTORS.get(ticker)
+        if peer_sector and not _naics_matches(peer_sector, company_naics_sector):
+            print(f"   ⚠️  Dropping peer {peer.get('company_name')} ({ticker}) "
+                  f"— sector {peer_sector} ≠ company sector {company_naics_sector}")
+            continue
+        filtered.append(peer)
+    return filtered
+
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 
@@ -186,7 +251,11 @@ After gathering data, respond with ONLY this JSON (no prose):
   "industry_comparison": null
 }}}}
 
-Peer rules: 4-6 peers, US-listed tickers only, prioritise direct competitors, no invented tickers."""
+HARD RULE — Peer sector constraint: ALL peer companies MUST operate in the SAME NAICS sector as the subject company.
+Do NOT list companies from other sectors — for example, do NOT include Apple, Amazon, Google, Microsoft, or any tech/retail/finance company as a peer for a manufacturer.
+If a competitor search returns off-sector companies, ignore them.
+
+Peer rules: 4-6 peers, US-listed tickers only, prioritise direct competitors in the same NAICS sector, no invented tickers."""
 
 
 class IndustryAgent:
@@ -196,13 +265,18 @@ class IndustryAgent:
     """
 
     def __init__(self):
+        import os
         from ..llm_factory import get_llm
         self.llm = get_llm(temperature=0)
-        self.agent = create_react_agent(
-            self.llm,
-            INDUSTRY_TOOLS,
-            prompt=SYSTEM_PROMPT,
-        )
+        self._use_react = os.getenv("LLM_PROVIDER", "anthropic").lower() != "ollama"
+        if self._use_react:
+            self.agent = create_react_agent(
+                self.llm,
+                INDUSTRY_TOOLS,
+                prompt=SYSTEM_PROMPT,
+            )
+        else:
+            self.agent = None
 
     def get_comprehensive_industry_analysis(
         self,
@@ -222,41 +296,108 @@ class IndustryAgent:
             f"{fin_note}"
         )
 
-        _TIMEOUT_SECONDS = 60  # hard wall-clock limit — prevents infinite DDG hangs
+        _TIMEOUT_SECONDS = 60
 
-        def _invoke():
-            return self.agent.invoke(
-                {"messages": [HumanMessage(content=user_message)]},
-                config={"recursion_limit": 5},
-            )
+        parsed = {}
 
-        try:
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-            with ThreadPoolExecutor(max_workers=1) as _pool:
-                future = _pool.submit(_invoke)
-                try:
-                    result = future.result(timeout=_TIMEOUT_SECONDS)
-                except FuturesTimeout:
-                    future.cancel()
-                    raise TimeoutError(f"IndustryAgent timed out after {_TIMEOUT_SECONDS}s")
-            messages = result.get("messages", [])
-            output = ""
-            for msg in reversed(messages):
-                content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
-                if content and not getattr(msg, "tool_calls", None):
-                    output = content
-                    break
-            parsed = robust_parse_json(output, {})
-        except Exception as e:
-            print(f"❌ IndustryAgent error: {e}")
-            parsed = {}
+        if not self._use_react:
+            # ── Ollama fallback: gather search data manually, then one LLM call ──
+            try:
+                competitors_raw = _ddg_search(
+                    f"{company_name} top direct competitors publicly traded stock ticker", max_results=6
+                )
+                trends_raw = _ddg_search(
+                    f"{industry or company_name} industry trends outlook 2025 2026", max_results=5
+                )
+                from langchain_core.messages import SystemMessage, HumanMessage as _HM
+                system_content = (
+                    "You are a commercial banking industry analyst.\n"
+                    "Based on the search results below, return ONLY a JSON object with these exact fields:\n"
+                    '{\n'
+                    '  "naics_classification": {\n'
+                    '    "naics_sector": "2-digit code",\n'
+                    '    "naics_sector_name": "sector name",\n'
+                    '    "naics_code": "4-6 digit code",\n'
+                    '    "industry_subsector": "specific subsector",\n'
+                    '    "confidence": "high"\n'
+                    '  },\n'
+                    '  "peer_companies": [\n'
+                    '    {\n'
+                    '      "company_name": "name",\n'
+                    '      "ticker": "US ticker symbol or null",\n'
+                    '      "relationship": "direct_competitor",\n'
+                    '      "estimated_size": "larger|similar|smaller",\n'
+                    '      "key_difference": "one sentence"\n'
+                    '    }\n'
+                    '  ],\n'
+                    '  "industry_trends": {\n'
+                    '    "growth_outlook": "strong|moderate|weak|declining",\n'
+                    '    "key_trends": ["trend1", "trend2"],\n'
+                    '    "opportunities": ["opp1"],\n'
+                    '    "challenges": ["challenge1"],\n'
+                    '    "risk_factors": ["risk1"],\n'
+                    '    "summary": "2-3 sentences"\n'
+                    '  },\n'
+                    '  "industry_comparison": null\n'
+                    '}\n'
+                    "HARD RULE: ALL peers MUST be in the SAME NAICS sector as the subject company.\n"
+                    "Do NOT include Apple, Amazon, Google, Microsoft, or any company from a different industry.\n"
+                    "For an auto/EV manufacturer, only include other auto or EV companies.\n"
+                    "Return 4-6 real publicly traded US peers with correct tickers. No invented tickers.\n"
+                    f"NAICS reference:\n{_NAICS_LIST}"
+                )
+                user_content = (
+                    f"Company: {company_name}\n"
+                    f"Industry: {industry or 'Unknown'}\n"
+                    f"Description: {company_description or 'Not provided'}\n\n"
+                    f"Competitor search results:\n{competitors_raw[:3000]}\n\n"
+                    f"Industry trend results:\n{trends_raw[:2000]}"
+                )
+                raw = self.llm.invoke([
+                    SystemMessage(content=system_content),
+                    HumanMessage(content=user_content),
+                ]).content
+                parsed = robust_parse_json(raw, {})
+            except Exception as e:
+                print(f"❌ IndustryAgent (Ollama fallback) error: {e}")
+        else:
+            # ── ReAct agent path (Anthropic/Claude) ──
+            def _invoke():
+                return self.agent.invoke(
+                    {"messages": [HumanMessage(content=user_message)]},
+                    config={"recursion_limit": 5},
+                )
+
+            try:
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+                with ThreadPoolExecutor(max_workers=1) as _pool:
+                    future = _pool.submit(_invoke)
+                    try:
+                        result = future.result(timeout=_TIMEOUT_SECONDS)
+                    except FuturesTimeout:
+                        future.cancel()
+                        raise TimeoutError(f"IndustryAgent timed out after {_TIMEOUT_SECONDS}s")
+                messages = result.get("messages", [])
+                output = ""
+                for msg in reversed(messages):
+                    content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
+                    if content and not getattr(msg, "tool_calls", None):
+                        output = content
+                        break
+                parsed = robust_parse_json(output, {})
+            except Exception as e:
+                print(f"❌ IndustryAgent error: {e}")
+                parsed = {}
 
         return {
             "company_name": company_name,
             "naics_classification": parsed.get("naics_classification", {
                 "naics_sector": "99", "naics_sector_name": "Unknown", "naics_code": ""
             }),
-            "peer_companies": _dedup_peers(parsed.get("peer_companies", [])),
+            "peer_companies": _filter_peers_by_naics(
+                _dedup_peers(parsed.get("peer_companies", [])),
+                (parsed.get("naics_classification") or {}).get("naics_sector", ""),
+            ),
             "industry_trends": parsed.get("industry_trends", {
                 "growth_outlook": "unknown", "key_trends": []
             }),

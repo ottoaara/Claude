@@ -1,7 +1,7 @@
 import httpx
 from bs4 import BeautifulSoup
 from typing import Dict, Optional
-from ..llm_factory import get_llm
+from ..llm_factory import get_llm, robust_parse_json
 from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
@@ -99,12 +99,9 @@ Return valid JSON only."""),
             })
 
             response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            info = json.loads(response_text)
+            info = robust_parse_json(response_text, {})
+            if not isinstance(info, dict):
+                info = {}
             info["source_url"] = website_url
             info["scraped_at"] = __import__('datetime').datetime.now().isoformat()
 

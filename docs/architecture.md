@@ -8,6 +8,140 @@ graph TB
         direction TB
         UI["Next.js 16 / React 19 / TailwindCSS"]
         subgraph Tabs["8-Tab Research Dashboard  (localhost:3000/banking)"]
+            T1["① Executive Summary + Deal Trigger Alerts"]
+            T2["② Financial Metrics + Covenant Watch"]
+            T3["③ Industry Analysis + Peer Benchmarking"]
+            T4["④ News & Sentiment Sparklines"]
+            T5["⑤ Knowledge Graph (force-directed)"]
+            T6["⑥ Officer Intelligence + Board Interlock Map"]
+            T7["⑦ Pitch + Incumbent Bank + Entry Points"]
+            T8["⑧ Activity Log + Deals History"]
+        end
+        RM["RM Portfolio Dashboard\n(localhost:3000/rm)\nSortable table + Industry Heat Map"]
+        MB["Meeting Brief Modal\n(header button — always visible)"]
+        UI --> Tabs
+        UI --> RM
+        UI --> MB
+    end
+
+    subgraph API["FastAPI Backend  (localhost:8000)"]
+        direction TB
+        EP["26 REST Endpoints"]
+        AUTH["X-API-Key Auth header"]
+        BG["Async Background Jobs\n(per-job orchestrator — supports concurrent demos)"]
+        EP --> AUTH
+        EP --> BG
+    end
+
+    subgraph Pipeline["LangGraph Research Pipeline"]
+        WF["8-Node Sequential Workflow\nEmits progress events per step\nFrontend polls /research/status/{job_id}"]
+    end
+
+    subgraph Agents["Research Agents"]
+        A1["WebScraperAgent\nBeautifulSoup + Claude profile extraction"]
+        A2["EdgarAgent\nSEC 10-K/10-Q — disk cache first\nOllama: 12k char cap; Anthropic: 150k"]
+        A3["NewsAgent + NewsClassifier\nDuckDuckGo + LLM batch sentiment (5/call)"]
+        A4["ProductAgent\nClaude maps sector+size → banking products"]
+        A5["IndustryAgent\nNAICS classification + peer discovery\nOllama: DDG+direct LLM (no ReAct)\nHard rule: peers must match NAICS sector"]
+        A6["OfficerAgent\nDDG + proxy/LinkedIn scrape\nBuilds full profile per exec"]
+        A7["TemporalDimension\nDecay curves + recency scoring\nHandles Q1 2026 / FY2024 / ISO dates"]
+    end
+
+    subgraph DataLayer["Data Layer — Neo4j (bolt://localhost:7687)"]
+        C["Company node"]
+        FIN["FinancialData nodes"]
+        NEWS["NewsItem nodes"]
+        PROD["Product nodes"]
+        IND["Industry nodes (NAICS)"]
+        OFF["Officer nodes\n(normalized names, profiled flag)"]
+        PEER["Company nodes (peers)\ndeduped by ticker + normalized name"]
+        ACT["Activity + Deal nodes"]
+        C -->|HAS_FINANCIAL| FIN
+        C -->|HAS_NEWS| NEWS
+        C -->|OFFERS| PROD
+        C -->|IN_INDUSTRY| IND
+        C -->|HAS_OFFICER| OFF
+        C -->|HAS_PEER / PEER_OF| PEER
+        C -->|HAS_ACTIVITY / HAS_DEAL| ACT
+    end
+
+    subgraph LLMFactory["LLM Factory  (llm_factory.py)"]
+        direction LR
+        LLMF["get_llm(json_mode, temperature)\nrobust_parse_json() — handles Ollama quirks\n(empty responses, dict wrappers, trailing commas)"]
+        LLMF -->|"LLM_PROVIDER=anthropic"| ANT["Anthropic API\nClaude Sonnet 4.6"]
+        LLMF -->|"LLM_PROVIDER=ollama"| OLL["Ollama (local)\nllama3:latest"]
+    end
+
+    subgraph OnDemand["On-Demand API Features (per-request, no pipeline)"]
+        OD1["Deal Trigger Alerts\nClaude classifies news + financials → urgency + product"]
+        OD2["Covenant Watch\nD/EBITDA · interest coverage · ROA vs thresholds"]
+        OD3["Incumbent Bank Detection\nDDG + SEC credit agreement search"]
+        OD4["Meeting Brief\nClaude synthesises all dimensions → headline + questions + email"]
+        OD5["Pitch Score\n5-dimension weighted score (NAICS, recency, officers, triggers, financials)"]
+        OD6["Board Interlock + Alumni Network\nCross-ref officers vs 17 WF banker roster"]
+        OD7["RM Portfolio + Industry Heatmap\nAggregated stats across all tracked companies"]
+    end
+
+    subgraph FileCache["Local File Cache"]
+        SEC["sec-edgar-filings/\nTicker/10-K|10-Q/accession/\n55+ tickers cached"]
+    end
+
+    subgraph External["External Services"]
+        EDGAR["SEC EDGAR API"]
+        DDG["DuckDuckGo (ddgs)"]
+        YF["yfinance"]
+    end
+
+    Browser -->|"HTTP fetch"| API
+    API --> Pipeline
+    Pipeline --> Agents
+    Agents --> DataLayer
+    Agents --> LLMFactory
+    Agents --> External
+    A2 -->|"cache hit"| SEC
+    A2 -->|"cache miss"| EDGAR
+    API --> OnDemand
+    OnDemand --> DataLayer
+    OnDemand --> LLMFactory
+    OnDemand -->|"incumbent bank"| DDG
+
+    style Browser fill:#e3f2fd,stroke:#1565c0
+    style API fill:#fff3e0,stroke:#e65100
+    style Pipeline fill:#f3e5f5,stroke:#6a1b9a
+    style Agents fill:#e8f5e9,stroke:#2e7d32
+    style DataLayer fill:#fce4ec,stroke:#880e4f
+    style LLMFactory fill:#fff8e1,stroke:#f9a825
+    style OnDemand fill:#e0f7fa,stroke:#006064
+    style FileCache fill:#f5f5f5,stroke:#9e9e9e
+    style External fill:#f5f5f5,stroke:#9e9e9e
+```
+
+## Neo4j Node Types
+
+| Node Label | Key Properties |
+|---|---|
+| `Company` | name, ticker, website, sector, employees, description |
+| `FinancialData` | filing_type, period, revenue, net_income, total_assets, cash, ebitda |
+| `NewsItem` | title, date, sentiment, severity, is_material, event_types |
+| `Product` | name, category, description |
+| `Industry` | naics_code, naics_sector, sector_name, subsector |
+| `Officer` | name, role, background_summary, risk_flags, board_memberships, profiled |
+| `Company` (peer) | same as Company — deduped by ticker then normalized name |
+| `Activity` | type, date, notes, contact_name |
+| `Deal` | product, category, amount, status, date |
+
+## Environment Variables
+
+```
+ANTHROPIC_API_KEY=     # used when LLM_PROVIDER=anthropic
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+USER_EMAIL=            # SEC EDGAR courtesy header
+LLM_PROVIDER=ollama    # or: anthropic
+OLLAMA_MODEL=llama3:latest
+```
+
             T1["1 Executive Summary\n+ Deal Trigger Alerts"]
             T2["2 Financial Metrics\n+ Covenant Watch"]
             T3["3 Industry Analysis\nPeer Benchmarking"]

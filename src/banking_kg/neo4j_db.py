@@ -1,7 +1,67 @@
 from neo4j import GraphDatabase
 from typing import Dict, List, Any, Optional
 import os
+import re
 from datetime import datetime
+
+# Corporate suffix pattern for peer name canonicalization
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(inc\.?|corp\.?|co\.?|llc\.?|ltd\.?|plc\.?|corporation|company|group|"
+    r"holdings?|automotive|motors?|technologies|technology|systems?|solutions?|"
+    r"international|enterprises?|industries?)\b",
+    re.IGNORECASE,
+)
+
+def _normalize_name(name: str) -> str:
+    """Strip corporate suffixes and whitespace for fuzzy matching."""
+    s = _CORP_SUFFIX_RE.sub("", name.lower())
+    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+def _dedup_peers_list(peers: list) -> list:
+    """Deduplicate a list of peer dicts by ticker (primary) then normalized name.
+    Keeps the entry with a ticker over one without; on tie keeps first seen.
+    Handles variants like 'General Motors' / 'General Motors Co.' and
+    'Lucid Group' / 'Lucid Group Inc.'
+    """
+    seen_tickers: dict = {}
+    seen_names: dict = {}
+    out: list = []
+    for peer in peers:
+        ticker = (peer.get("ticker") or "").strip().upper() or None
+        norm = _normalize_name(peer.get("company_name") or peer.get("name") or "")
+        if ticker and ticker in seen_tickers:
+            idx = seen_tickers[ticker]
+            if len(peer.get("company_name", "") or peer.get("name", "")) > len(
+                out[idx].get("company_name", "") or out[idx].get("name", "")
+            ):
+                out[idx] = peer
+            continue
+        if norm and norm in seen_names:
+            idx = seen_names[norm]
+            if ticker and not (out[idx].get("ticker") or "").strip():
+                out[idx] = peer
+                if ticker:
+                    seen_tickers[ticker] = idx
+            continue
+        if ticker:
+            seen_tickers[ticker] = len(out)
+        if norm:
+            seen_names[norm] = len(out)
+        out.append(peer)
+    return out
+
+
+def _normalize_officer_name(name: str) -> str:
+    """Normalize a person name for dedup: lowercase, strip middle initials/names.
+    'Elon E. Musk', 'Elon E Musk', 'Elon Musk' → 'elon musk'
+    Keeps first + last token only when 3+ tokens and middle token is 1-2 chars.
+    """
+    parts = re.sub(r"[^a-zA-Z\s]", "", name).lower().split()
+    if len(parts) >= 3 and len(parts[1]) <= 2:
+        # strip middle initial/name
+        parts = [parts[0]] + parts[2:]
+    return " ".join(parts)
 
 # ── Universal cache TTL policy ───────────────────────────────────────────────
 # All financial data (main company and peers, 10-K and 10-Q) uses the same TTL.
@@ -151,7 +211,7 @@ class BankingKnowledgeGraph:
             if row and row["peers_json"]:
                 import json as _json
                 try:
-                    return _json.loads(row["peers_json"])
+                    return _dedup_peers_list(_json.loads(row["peers_json"]))
                 except Exception:
                     pass
         return []
@@ -159,6 +219,7 @@ class BankingKnowledgeGraph:
     def save_peers_for_company(self, company_name: str, peers: list) -> None:
         """Persist peer list JSON on the Industry node linked to this company."""
         import json as _json
+        peers = _dedup_peers_list(peers)  # strip duplicates before persisting
         with self.driver.session() as session:
             session.run("""
                 MATCH (c:Company {name: $name})-[:BELONGS_TO]->(i:Industry)
@@ -404,9 +465,32 @@ class BankingKnowledgeGraph:
                 return {}
             return _node_to_dict(record["i"])
 
+    def _resolve_canonical_peer_name(self, peer_name: str) -> str:
+        """Return the existing canonical Company.name for this peer if one exists
+        (matched case-insensitively or by normalized suffix-stripped form).
+        If no match is found, return peer_name unchanged."""
+        norm = _normalize_name(peer_name)
+        with self.driver.session() as s:
+            # 1. Exact case-insensitive match
+            row = s.run(
+                "MATCH (c:Company) WHERE toLower(c.name) = toLower($name) "
+                "RETURN c.name LIMIT 1",
+                name=peer_name,
+            ).single()
+            if row:
+                return row["c.name"]
+            # 2. Suffix-stripped match — load all Company names and compare
+            if norm:
+                rows = s.run("MATCH (c:Company) RETURN c.name").data()
+                for r in rows:
+                    if _normalize_name(r["c.name"]) == norm:
+                        return r["c.name"]
+        return peer_name
+
     def add_peer_relationship(self, company_name: str, peer_name: str,
                              similarity_score: float = None) -> None:
         """Add peer/competitor relationship"""
+        peer_name = self._resolve_canonical_peer_name(peer_name)
         with self.driver.session() as session:
             session.run("""
                 MATCH (c1:Company {name: $company_name})
@@ -418,10 +502,31 @@ class BankingKnowledgeGraph:
                similarity_score=similarity_score)
 
     def add_officer(self, company_name: str, officer: Dict) -> None:
-        """Store an officer profile linked to a company."""
+        """Store an officer profile linked to a company.
+        Resolves duplicate name variants (e.g. 'Elon E Musk' → existing 'Elon Musk' node)
+        by checking normalized name before creating a new node.
+        """
         import json as _json
+        raw_name = officer.get("name", "").strip()
+        norm = _normalize_officer_name(raw_name)
+
+        # Look for an existing officer node for this company with same normalized name
+        with self.driver.session() as _s:
+            existing = _s.run(
+                "MATCH (c:Company)-[:HAS_OFFICER]->(o:Officer) "
+                "WHERE toLower(c.name) = toLower($company_name) "
+                "RETURN o.id AS oid, o.name AS oname ",
+                company_name=company_name,
+            ).data()
+            resolved_id = None
+            for row in existing:
+                if _normalize_officer_name(row.get("oname") or "") == norm:
+                    resolved_id = row["oid"]
+                    break
+
+        officer_id = resolved_id or f"{company_name}_{raw_name.replace(' ', '_')}"
+
         with self.driver.session() as session:
-            officer_id = f"{company_name}_{officer.get('name', '').replace(' ', '_')}"
             session.run("""
                 MATCH (c:Company {name: $company_name})
                 MERGE (o:Officer {id: $officer_id})
@@ -429,6 +534,7 @@ class BankingKnowledgeGraph:
                     o.role                 = $role,
                     o.role_short           = $role_short,
                     o.company              = $company_name,
+                    o.profiled             = $profiled,
                     o.background_summary   = $background_summary,
                     o.education            = $education,
                     o.previous_roles       = $previous_roles,
@@ -447,9 +553,10 @@ class BankingKnowledgeGraph:
             """,
             company_name=company_name,
             officer_id=officer_id,
-            name=officer.get("name", ""),
+            name=raw_name,
             role=officer.get("role", ""),
             role_short=officer.get("role_short", officer.get("role", "")[:6]),
+            profiled=bool(officer.get("profiled", False)),
             background_summary=officer.get("background_summary", ""),
             education=_json.dumps(officer.get("education", [])),
             previous_roles=_json.dumps(officer.get("previous_roles", [])),
@@ -496,18 +603,33 @@ class BankingKnowledgeGraph:
                                 o[field] = _json.loads(raw)
                             except Exception:
                                 o[field] = []
-                    # Deduplicate across name variants — prefer the richer record
-                    key = (o.get("name", "") or "").strip().lower()
+                    # Infer profiled from stored flag or data completeness
+                    if "profiled" not in o or o["profiled"] is None:
+                        bs = o.get("background_summary") or ""
+                        o["profiled"] = bool(bs and bs != "Profile unavailable.")
+
+                    # Deduplicate across name variants (handles 'Elon E Musk' vs 'Elon Musk')
+                    key = _normalize_officer_name(o.get("name") or "")
                     if key and key not in seen_names:
                         seen_names.add(key)
                         officers.append(o)
                     elif key in seen_names:
-                        # Replace with this record if it has more board data
+                        # Keep the richer record: prefer profiled, then most board data
                         idx = next((i for i, x in enumerate(officers)
-                                    if (x.get("name","") or "").strip().lower() == key), None)
+                                    if _normalize_officer_name(x.get("name") or "") == key), None)
                         if idx is not None:
                             existing = officers[idx]
-                            if len(o.get("board_memberships") or []) > len(existing.get("board_memberships") or []):
+                            challenger_score = (
+                                int(bool(o.get("profiled"))) * 100
+                                + len(o.get("board_memberships") or [])
+                                + len(o.get("previous_roles") or [])
+                            )
+                            existing_score = (
+                                int(bool(existing.get("profiled"))) * 100
+                                + len(existing.get("board_memberships") or [])
+                                + len(existing.get("previous_roles") or [])
+                            )
+                            if challenger_score > existing_score:
                                 officers[idx] = o
             return officers
 
@@ -521,16 +643,8 @@ class BankingKnowledgeGraph:
         traversal queries.
         """
         import json as _json
-        # Normalise peer_name: prefer the canonical form already in the DB
-        # so we never create a duplicate lowercase/uppercase Company node.
-        with self.driver.session() as _s:
-            existing = _s.run(
-                "MATCH (c:Company) WHERE toLower(c.name) = toLower($name) "
-                "RETURN c.name LIMIT 1",
-                name=peer_name
-            ).single()
-            if existing:
-                peer_name = existing["c.name"]
+        # Normalise peer_name: resolve to canonical DB name (handles suffix variants)
+        peer_name = self._resolve_canonical_peer_name(peer_name)
         filing_type   = metrics.get("filing_type", "10-K")
         filing_period = metrics.get("filing_period", "") or metrics.get("period", "")
         financial_id  = f"{peer_name}_{filing_type}_{filing_period}"
@@ -708,6 +822,25 @@ class BankingKnowledgeGraph:
                         })
                     legacy_peers.append(p)
 
+            # Merge HAS_PEER and legacy PEER_OF results, dedup by normalized name
+            all_peers = peers + [p for p in legacy_peers if not any(
+                ep["name"] == p["name"] for ep in peers
+            )]
+            seen: dict = {}
+            deduped_peers = []
+            for p in all_peers:
+                key = _normalize_name(p.get("name") or p.get("ticker") or "")
+                if not key:
+                    continue
+                if key not in seen:
+                    seen[key] = len(deduped_peers)
+                    deduped_peers.append(p)
+                else:
+                    # Keep entry with more financial data
+                    idx = seen[key]
+                    if p.get("revenue") and not deduped_peers[idx].get("revenue"):
+                        deduped_peers[idx] = p
+
             return {
                 "target": {
                     "name": company_name,
@@ -720,9 +853,7 @@ class BankingKnowledgeGraph:
                     "filing_period": latest_f.get("period", ""),
                     "filing_type": latest_f.get("filing_type", ""),
                 },
-                "peers": peers + [p for p in legacy_peers if not any(
-                    ep["name"] == p["name"] for ep in peers
-                )],
+                "peers": deduped_peers,
             }
 
     def get_financials_by_ticker(self, ticker: str, max_age_days: int = FINANCIAL_CACHE_TTL_DAYS) -> List[Dict]:

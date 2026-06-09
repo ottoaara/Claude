@@ -162,8 +162,19 @@ def list_companies():
 
 
 def run_research_sync(job_id: str, company_name: str, ticker: str = None, website: str = None):
-    """Run research in background"""
-    global research_jobs, orchestrator
+    """Run research in background — creates its own orchestrator so concurrent jobs don't share state."""
+    global research_jobs
+
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+    user_email = os.getenv("USER_EMAIL", "ottoaara@gmail.com")
+    job_orchestrator = BankingResearchOrchestrator(
+        neo4j_uri=neo4j_uri,
+        neo4j_user=neo4j_user,
+        neo4j_password=neo4j_password,
+        user_email=user_email,
+    )
 
     research_jobs[job_id]["status"] = "running"
 
@@ -174,8 +185,8 @@ def run_research_sync(job_id: str, company_name: str, ticker: str = None, websit
                 "total_steps": 7
             }
 
-        result = orchestrator.research_company(company_name, ticker, website,
-                                               progress_callback=on_step_complete)
+        result = job_orchestrator.research_company(company_name, ticker, website,
+                                                   progress_callback=on_step_complete)
 
         research_jobs[job_id]["status"] = "completed"
         research_jobs[job_id]["completed_at"] = datetime.now().isoformat()
@@ -1447,13 +1458,40 @@ Return ONLY a JSON object with these fields:
   "entry_points": ["Up to 3 warm intro angles — shared boards, alumni, existing deals, referrals"],
   "smart_questions": ["5 questions that will impress the contact and surface needs"],
   "dont_mention": ["1-2 sensitive topics to avoid based on news/risk data"],
-  "one_slide_summary": "3-sentence executive summary suitable for a pre-call email"
+  "pre_call_email": {
+    "subject": "Subject line for the email",
+    "greeting": "Dear [first name],",
+    "body": "3-4 sentence professional email body. First sentence establishes shared context or reason for reaching out. Second sentence references something specific and timely about the company (a real number, recent news, or milestone). Third sentence articulates the value Wells Fargo can bring. Final sentence proposes a brief call with a specific time ask.",
+    "sign_off": "Best regards,"
+  }
 }}"""),
         ("user", "Meeting context:\n{context}")
     ])
     result = robust_parse_json((prompt | llm).invoke({"context": _json.dumps(context, indent=2)}).content, {})
     if not result:
         raise HTTPException(status_code=500, detail="Failed to generate meeting brief")
+
+    # Normalize list fields — Ollama sometimes returns [{description:...}] instead of [str]
+    def _to_str(item) -> str:
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            return (item.get("description") or item.get("text") or item.get("question")
+                    or item.get("point") or item.get("topic") or next(iter(item.values()), ""))
+        return str(item)
+
+    # Normalize pre_call_email if Ollama returns it as a plain string
+    if "pre_call_email" in result and isinstance(result["pre_call_email"], str):
+        result["pre_call_email"] = {"subject": "", "greeting": "", "body": result["pre_call_email"], "sign_off": ""}
+    # Back-compat: if LLM still returned one_slide_summary, migrate it
+    if "one_slide_summary" in result and "pre_call_email" not in result:
+        result["pre_call_email"] = {"subject": "", "greeting": "", "body": result.pop("one_slide_summary"), "sign_off": ""}
+
+    for field in ("three_things_going_well", "three_risks", "entry_points",
+                  "smart_questions", "dont_mention"):
+        if field in result and isinstance(result[field], list):
+            result[field] = [_to_str(x) for x in result[field] if x]
+
     result["company_name"] = company_name
     result["contact_name"] = contact_name
     result["contact_role"] = contact_role

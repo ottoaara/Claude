@@ -1,5 +1,5 @@
 from typing import Dict, List
-from ..llm_factory import get_llm
+from ..llm_factory import get_llm, robust_parse_json
 from langchain_core.prompts import ChatPromptTemplate
 import os
 import json
@@ -10,7 +10,7 @@ class ProductAgent:
     """Agent for generating mock product data (for demo purposes)"""
 
     def __init__(self):
-        self.llm = get_llm(temperature=0.7)
+        self.llm = get_llm(temperature=0.7, json_mode=True)
 
     def generate_products(self, company_name: str, industry: str,
                          company_description: str = None) -> List[Dict]:
@@ -47,12 +47,9 @@ Generate realistic products/services for this company.""")
             })
 
             response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            products = json.loads(response_text)
+            products = robust_parse_json(response_text, [])
+            if not isinstance(products, list):
+                products = []
 
             # Add mock revenue data
             for i, product in enumerate(products):
@@ -138,12 +135,9 @@ Return valid JSON."""),
             response = chain.invoke({"products": json.dumps(products, indent=2)})
 
             response_text = response.content
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            analysis = json.loads(response_text)
+            analysis = robust_parse_json(response_text, {})
+            if not isinstance(analysis, dict):
+                analysis = {}
 
             # Add calculated metrics
             total_revenue = sum(p.get("annual_revenue_millions", 0) for p in products)
